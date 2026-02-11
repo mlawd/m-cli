@@ -197,7 +197,7 @@ func newStageStartNextCmd() *cobra.Command {
 				return nil
 			}
 
-			return agent.StartOpenCode(worktree)
+			return agent.StartOpenCodeWithArgs(worktree, "--prompt", stageStartPrompt(target))
 		},
 	}
 
@@ -373,6 +373,15 @@ func parentBranchForStage(repoRoot string, stack *state.Stack, stageIndex int) (
 
 func stageBranchName(stackName string, stageIndex int, stageID string) string {
 	return fmt.Sprintf("%s/%d/%s", strings.Trim(stackName, "/"), stageIndex+1, stageID)
+}
+
+func stageStartPrompt(stage *state.Stage) string {
+	prompt := fmt.Sprintf("Implement stage %s", stage.ID)
+	if title := strings.TrimSpace(stage.Title); title != "" {
+		prompt = fmt.Sprintf("%s: %s", prompt, title)
+	}
+
+	return prompt
 }
 
 func findOpenPRURL(repoRoot, headBranch string) (string, error) {

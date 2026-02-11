@@ -7,12 +7,16 @@ import (
 )
 
 func StartOpenCode(dir string) error {
+	return StartOpenCodeWithArgs(dir)
+}
+
+func StartOpenCodeWithArgs(dir string, args ...string) error {
 	path, err := exec.LookPath("opencode")
 	if err != nil {
 		return fmt.Errorf("opencode not found in PATH")
 	}
 
-	cmd := exec.Command(path)
+	cmd := exec.Command(path, args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

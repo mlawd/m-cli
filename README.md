@@ -52,7 +52,7 @@ make run ARGS="stage list"
 - `m stage list` lists stages for the current stack (requires attached plan)
 - `m stage select <stage-id>` selects a stage in the current stack
 - `m stage current` prints the current stage id (empty if none)
-- `m stage start-next` creates/reuses the next stage branch and worktree under `.m/worktrees/`, selects it, and opens `opencode` in that worktree (use `--no-open` to skip)
+- `m stage start-next` creates/reuses the next stage branch and worktree under `.m/worktrees/`, selects it, and opens `opencode` in that worktree with an initial prompt like `Implement stage <id>: <title>` (use `--no-open` to skip)
 - `m stack rebase` rebases started stage branches in order (first onto default branch, then each onto the previous stage)
 - `m stage push` pushes the current stage branch and creates a PR if one does not already exist
 
