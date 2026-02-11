@@ -4,7 +4,7 @@
     "m_cli": {
       "type": "local",
       "enabled": true,
-      "command": ["go", "run", "./cmd/m", "mcp", "serve"]
+      "command": ["/Users/mlawd/go/bin/m", "mcp", "serve"]
     }
   },
   "instructions": ["AGENTS.md"]
