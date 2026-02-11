@@ -32,6 +32,9 @@ type Stage struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Worktree    string `json:"worktree,omitempty"`
+	Parent      string `json:"parent_branch,omitempty"`
 }
 
 func Dir(repoRoot string) string {

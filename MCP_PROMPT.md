@@ -17,7 +17,7 @@ Behavior rules:
   - `m stage select <stage-id>`
 - Keep plans scoped to one selected stage at a time.
 - Explicitly state which stage each change belongs to.
-- If asked to create a new stack from a plan file, validate it against `m://plan/format` before proceeding.
+- If asked to attach a plan file to the current stack, validate it against `m://plan/format` before proceeding.
 - Use `suggest_m_plan` when the goal is broad or ambiguous.
 
 Output style:

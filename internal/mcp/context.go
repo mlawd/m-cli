@@ -76,25 +76,35 @@ func planningGuide() string {
 1) Initialize local state once per repo:
    - m init
 
-2) Create a stack from a plan file when starting a new effort:
-   - m stack new <stack-name> --plan-file ./plan.yaml
+2) Create a stack when starting a new effort:
+   - m stack new <stack-name> [--plan-file ./plan.yaml]
    - This auto-selects the stack.
 
-3) Confirm or switch current stack:
+3) If the stack was created without a plan, attach one before stage commands:
+   - m stack attach-plan ./plan.yaml
+
+4) Confirm or switch current stack:
    - m stack current
    - m stack select <stack-name>
 
-4) Break work into ordered stages and select one:
+5) Break work into ordered stages and select one:
    - m stage list
    - m stage select <stage-id>
+   - m stage start-next
    - m stage current
 
-5) While planning agent work:
+6) Keep stack branches synchronized as upstream changes land:
+   - m stack rebase
+
+7) Publish the active stage branch and open/update review:
+   - m stage push
+
+8) While planning agent work:
    - Prefer one stage-focused goal at a time.
    - Keep changes scoped to the selected stage.
    - If no stage is selected, pick the earliest incomplete stage.
 
-6) Useful guardrails for agents:
+9) Useful guardrails for agents:
    - Read current stack/stage before proposing edits.
    - Mention which stage a change belongs to.
    - If changing stage scope, update selection first.
@@ -107,8 +117,11 @@ func commandReference() string {
 - m init
   Initialize repo-local .m state for this repository.
 
-- m stack new <stack-name> --plan-file <file>
-  Create a stack from a YAML plan file and select it.
+- m stack new <stack-name> [--plan-file <file>]
+  Create a stack, optionally from a YAML plan file, and select it.
+
+- m stack attach-plan <file>
+  Attach a YAML plan file to the current stack (fails if a plan is already attached).
 
 - m stack list
   List stacks and indicate which one is current.
@@ -119,14 +132,23 @@ func commandReference() string {
 - m stack current
   Print the active stack name.
 
+- m stack rebase
+  Rebase started stage branches in order for the current stack.
+
 - m stage list
-  List stages for the current stack.
+  List stages for the current stack (requires an attached plan).
 
 - m stage select <stage-id>
   Set the active stage for the current stack.
 
 - m stage current
   Print the active stage id for the current stack.
+
+- m stage start-next
+  Start the next stage by creating/reusing its branch and worktree under .m/worktrees/.
+
+- m stage push
+  Push the current stage branch and create a PR if an open one does not exist.
 `)
 }
 

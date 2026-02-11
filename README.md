@@ -13,12 +13,16 @@ go run ./cmd/m
 go run ./cmd/m help
 go run ./cmd/m version
 go run ./cmd/m init
-go run ./cmd/m stack new my-stack --plan-file ./plan.yaml
+go run ./cmd/m stack new my-stack
+go run ./cmd/m stack attach-plan ./plan.yaml
 go run ./cmd/m stack list
 go run ./cmd/m stack select my-stack
 go run ./cmd/m stack current
 go run ./cmd/m stage list
 go run ./cmd/m stage select foundation
+go run ./cmd/m stage start-next
+go run ./cmd/m stack rebase
+go run ./cmd/m stage push
 go run ./cmd/m stage current
 ```
 
@@ -26,7 +30,8 @@ With Makefile args forwarding:
 
 ```bash
 make run ARGS="init"
-make run ARGS="stack new my-stack --plan-file ./plan.yaml"
+make run ARGS="stack new my-stack"
+make run ARGS="stack attach-plan ./plan.yaml"
 make run ARGS="stage list"
 ```
 
@@ -37,13 +42,17 @@ make run ARGS="stage list"
 
 ## Stack + Stage workflow
 
-- `m stack new <stack-name> --plan-file <plan.yaml>` creates a stack from YAML and auto-selects it
+- `m stack new <stack-name> [--plan-file <plan.yaml>]` creates a stack and auto-selects it
+- `m stack attach-plan <plan.yaml>` attaches a plan to the current stack (fails if one is already attached)
 - `m stack list` lists stacks and marks the selected one
 - `m stack select <stack-name>` sets current stack context
 - `m stack current` prints the current stack name
-- `m stage list` lists stages for the current stack
+- `m stage list` lists stages for the current stack (requires attached plan)
 - `m stage select <stage-id>` selects a stage in the current stack
 - `m stage current` prints the current stage id (empty if none)
+- `m stage start-next` creates/reuses the next stage branch and worktree under `.m/worktrees/`, then selects it
+- `m stack rebase` rebases started stage branches in order (first onto default branch, then each onto the previous stage)
+- `m stage push` pushes the current stage branch and creates a PR if one does not already exist
 
 ### Plan file format
 
