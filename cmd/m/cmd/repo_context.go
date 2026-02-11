@@ -1,0 +1,40 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/mlawd/m-cli/internal/gitx"
+	"github.com/mlawd/m-cli/internal/state"
+)
+
+type repoContext struct {
+	rootPath string
+	common   string
+}
+
+func discoverRepoContext() (*repoContext, error) {
+	repo, err := gitx.DiscoverRepo(".")
+	if err != nil {
+		return nil, fmt.Errorf("discover repo: %w", err)
+	}
+
+	return &repoContext{rootPath: repo.TopLevel, common: repo.CommonDir}, nil
+}
+
+func loadState(ctx *repoContext) (*state.Config, *state.Stacks, error) {
+	if err := state.EnsureInitialized(ctx.rootPath); err != nil {
+		return nil, nil, err
+	}
+
+	config, err := state.LoadConfig(ctx.rootPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	stacks, err := state.LoadStacks(ctx.rootPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return config, stacks, nil
+}
