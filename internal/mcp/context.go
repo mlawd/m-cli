@@ -96,15 +96,18 @@ func planningGuide() string {
 6) Keep stack branches synchronized as upstream changes land:
    - m stack rebase
 
-7) Publish the active stage branch and open/update review:
+7) Publish a full stack (force-with-lease) when needed:
+   - m stack push
+
+8) Publish the active stage branch and open/update review:
    - m stage push
 
-8) While planning agent work:
+9) While planning agent work:
    - Prefer one stage-focused goal at a time.
    - Keep changes scoped to the selected stage.
    - If no stage is selected, pick the earliest incomplete stage.
 
-9) Useful guardrails for agents:
+10) Useful guardrails for agents:
    - Read current stack/stage before proposing edits.
    - Mention which stage a change belongs to.
    - If changing stage scope, update selection first.
@@ -137,6 +140,9 @@ func commandReference() string {
 
 - m stack rebase
   Rebase started stage branches in order for the current stack.
+
+- m stack push
+  Push started stage branches in order with --force-with-lease and create PRs when missing.
 
 - m stage list
   List stages for the current stack (requires an attached plan).

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,6 +25,7 @@ func newStackRootCmd() *cobra.Command {
 		newStackAttachPlanCmd(),
 		newStackRemoveCmd(),
 		newStackRebaseCmd(),
+		newStackPushCmd(),
 		newStackListCmd(),
 		newStackSelectCmd(),
 		newStackCurrentCmd(),
@@ -190,6 +192,76 @@ func newStackRebaseCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newStackPushCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "push",
+		Short: "Push started stage branches with force-with-lease",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := exec.LookPath("gh"); err != nil {
+				return fmt.Errorf("gh CLI is required for stack push")
+			}
+
+			repo, err := discoverRepoContext()
+			if err != nil {
+				return err
+			}
+
+			config, stacksFile, err := loadState(repo)
+			if err != nil {
+				return err
+			}
+
+			stack, err := requireCurrentStackWithPlan(config, stacksFile)
+			if err != nil {
+				return err
+			}
+
+			startedStageIndexes, err := startedStageIndexes(stack, func(branch string) bool {
+				return gitx.BranchExists(repo.rootPath, branch)
+			})
+			if err != nil {
+				return err
+			}
+
+			if len(startedStageIndexes) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "No started stage branches to push")
+				return nil
+			}
+
+			for _, stageIndex := range startedStageIndexes {
+				if err := pushStageAndEnsurePROpts(cmd, repo.rootPath, stack, stageIndex, true); err != nil {
+					return err
+				}
+			}
+
+			if err := syncStackPRDescriptions(cmd, repo.rootPath, stack, startedStageIndexes); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Pushed %d stage branch(es) with --force-with-lease\n", len(startedStageIndexes))
+			return nil
+		},
+	}
+}
+
+func startedStageIndexes(stack *state.Stack, localBranchExists func(branch string) bool) ([]int, error) {
+	if stack == nil {
+		return nil, fmt.Errorf("stack is required")
+	}
+
+	indexes := make([]int, 0, len(stack.Stages))
+	for idx := range stack.Stages {
+		branch := stageBranchFor(stack, idx)
+		if !localBranchExists(branch) {
+			continue
+		}
+		indexes = append(indexes, idx)
+	}
+
+	return indexes, nil
 }
 
 func newStackNewCmd() *cobra.Command {

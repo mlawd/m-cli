@@ -66,52 +66,28 @@ func newStagePushCmd() *cobra.Command {
 				return fmt.Errorf("current stage %q not found in stack %q", currentStageID, stack.Name)
 			}
 
-			branch := strings.TrimSpace(stage.Branch)
-			if branch == "" {
-				branch = stageBranchName(stack.Name, stageIndex, stage.ID)
-			}
-			if !gitx.BranchExists(repo.rootPath, branch) {
-				return fmt.Errorf("stage branch %q does not exist; run: m stage start-next", branch)
-			}
-
-			if _, err := gitx.Run(repo.rootPath, "push", "-u", "origin", branch); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s\n", branch)
-
-			prURL, err := findOpenPRURL(repo.rootPath, branch)
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(prURL) != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Existing PR: %s\n", prURL)
-				return nil
-			}
-
-			baseBranch, err := parentBranchForStage(repo.rootPath, stack, stageIndex)
+			stageIndexes, err := stageIndexesToPush(stack, stageIndex, func(branch string) bool {
+				return gitx.RemoteBranchExists(repo.rootPath, "origin", branch)
+			})
 			if err != nil {
 				return err
 			}
 
-			title := fmt.Sprintf("%s: %s", stack.Name, stage.Title)
-			if strings.TrimSpace(stage.Title) == "" {
-				title = fmt.Sprintf("%s: %s", stack.Name, stage.ID)
+			for _, idx := range stageIndexes {
+				if err := pushStageAndEnsurePR(cmd, repo.rootPath, stack, idx); err != nil {
+					return err
+				}
 			}
-			body := fmt.Sprintf("Stage: %s\n\n%s", stage.ID, strings.TrimSpace(stage.Description))
 
-			if _, err := runGH(repo.rootPath, "pr", "create", "--head", branch, "--base", baseBranch, "--title", title, "--body", body); err != nil {
+			if err := pushStageAndEnsurePR(cmd, repo.rootPath, stack, stageIndex); err != nil {
 				return err
 			}
 
-			prURL, err = findOpenPRURL(repo.rootPath, branch)
-			if err != nil {
+			updatedIndexes := append(stageIndexes, stageIndex)
+			if err := syncStackPRDescriptions(cmd, repo.rootPath, stack, updatedIndexes); err != nil {
 				return err
 			}
-			if strings.TrimSpace(prURL) == "" {
-				return fmt.Errorf("failed to determine PR URL after creation")
-			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Created PR: %s\n", prURL)
 			return nil
 		},
 	}
@@ -386,6 +362,227 @@ func stageStartPrompt(stage *state.Stage) string {
 	}
 
 	return prompt
+}
+
+func stageBranchFor(stack *state.Stack, stageIndex int) string {
+	stage := stack.Stages[stageIndex]
+	branch := strings.TrimSpace(stage.Branch)
+	if branch == "" {
+		branch = stageBranchName(stack.Name, stageIndex, stage.ID)
+	}
+
+	return branch
+}
+
+func stageIndexesToPush(stack *state.Stack, currentStageIndex int, remoteBranchExists func(branch string) bool) ([]int, error) {
+	if stack == nil {
+		return nil, fmt.Errorf("stack is required")
+	}
+	if currentStageIndex < 0 || currentStageIndex >= len(stack.Stages) {
+		return nil, fmt.Errorf("current stage index %d out of range", currentStageIndex)
+	}
+
+	indexes := make([]int, 0, currentStageIndex)
+	for idx := 0; idx < currentStageIndex; idx++ {
+		branch := stageBranchFor(stack, idx)
+		if remoteBranchExists(branch) {
+			continue
+		}
+		indexes = append(indexes, idx)
+	}
+
+	return indexes, nil
+}
+
+func pushStageAndEnsurePR(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndex int) error {
+	return pushStageAndEnsurePROpts(cmd, repoRoot, stack, stageIndex, false)
+}
+
+func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndex int, forceWithLease bool) error {
+	stage := &stack.Stages[stageIndex]
+	branch := stageBranchFor(stack, stageIndex)
+	if !gitx.BranchExists(repoRoot, branch) {
+		return fmt.Errorf("stage branch %q does not exist; run: m stage start-next", branch)
+	}
+
+	pushArgs := []string{"push", "-u", "origin", branch}
+	if forceWithLease {
+		pushArgs = append(pushArgs, "--force-with-lease")
+	}
+
+	if _, err := gitx.Run(repoRoot, pushArgs...); err != nil {
+		return err
+	}
+	if forceWithLease {
+		fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s (--force-with-lease)\n", branch)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s\n", branch)
+	}
+
+	prURL, err := findOpenPRURL(repoRoot, branch)
+	if err != nil {
+		return err
+	}
+
+	baseBranch, err := parentBranchForStage(repoRoot, stack, stageIndex)
+	if err != nil {
+		return err
+	}
+
+	if stageIndex > 0 && !gitx.RemoteBranchExists(repoRoot, "origin", baseBranch) {
+		if _, err := gitx.Run(repoRoot, "push", "-u", "origin", baseBranch); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Auto-pushed missing base branch %s\n", baseBranch)
+	}
+
+	stackPRURLs, err := collectStackOpenPRURLs(repoRoot, stack)
+	if err != nil {
+		return err
+	}
+
+	title := fmt.Sprintf("%s: %s", stack.Name, stage.Title)
+	if strings.TrimSpace(stage.Title) == "" {
+		title = fmt.Sprintf("%s: %s", stack.Name, stage.ID)
+	}
+	body := stagePRBody(stack, stageIndex, stackPRURLs)
+
+	if strings.TrimSpace(prURL) != "" {
+		if _, err := runGH(repoRoot, "pr", "edit", prURL, "--body", body); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Existing PR (%s): %s\n", stage.ID, prURL)
+		fmt.Fprintf(cmd.OutOrStdout(), "Updated PR description (%s): %s\n", stage.ID, prURL)
+		return nil
+	}
+
+	if _, err := runGH(repoRoot, "pr", "create", "--head", branch, "--base", baseBranch, "--title", title, "--body", body); err != nil {
+		return err
+	}
+
+	prURL, err = findOpenPRURL(repoRoot, branch)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(prURL) == "" {
+		return fmt.Errorf("failed to determine PR URL after creation")
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Created PR (%s): %s\n", stage.ID, prURL)
+	return nil
+}
+
+func collectStackOpenPRURLs(repoRoot string, stack *state.Stack) (map[int]string, error) {
+	urls := make(map[int]string, len(stack.Stages))
+	for idx := range stack.Stages {
+		branch := stageBranchFor(stack, idx)
+		prURL, err := findOpenPRURL(repoRoot, branch)
+		if err != nil {
+			return nil, err
+		}
+		urls[idx] = strings.TrimSpace(prURL)
+	}
+
+	return urls, nil
+}
+
+func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string) string {
+	stage := stack.Stages[stageIndex]
+	description := strings.TrimSpace(stage.Description)
+
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("Stage: %s", stage.ID))
+	if description != "" {
+		body.WriteString("\n\n")
+		body.WriteString(description)
+	}
+
+	body.WriteString("\n\n## Stack PRs\n\n### Upstream\n")
+	upstream := stackPRListLines(stack, stageIndex, stackPRURLs, true)
+	if len(upstream) == 0 {
+		body.WriteString("- None\n")
+	} else {
+		for _, line := range upstream {
+			body.WriteString(line)
+			body.WriteString("\n")
+		}
+	}
+
+	body.WriteString("\n### Downstream\n")
+	downstream := stackPRListLines(stack, stageIndex, stackPRURLs, false)
+	if len(downstream) == 0 {
+		body.WriteString("- None")
+	} else {
+		for i, line := range downstream {
+			body.WriteString(line)
+			if i < len(downstream)-1 {
+				body.WriteString("\n")
+			}
+		}
+	}
+
+	return body.String()
+}
+
+func stackPRListLines(stack *state.Stack, stageIndex int, stackPRURLs map[int]string, upstream bool) []string {
+	lines := []string{}
+	if upstream {
+		for idx := 0; idx < stageIndex; idx++ {
+			stage := stack.Stages[idx]
+			if prURL := strings.TrimSpace(stackPRURLs[idx]); prURL != "" {
+				lines = append(lines, fmt.Sprintf("- %s: %s", stage.ID, prURL))
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("- %s: (not created)", stage.ID))
+		}
+		return lines
+	}
+
+	for idx := stageIndex + 1; idx < len(stack.Stages); idx++ {
+		stage := stack.Stages[idx]
+		if prURL := strings.TrimSpace(stackPRURLs[idx]); prURL != "" {
+			lines = append(lines, fmt.Sprintf("- %s: %s", stage.ID, prURL))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s: (not created)", stage.ID))
+	}
+
+	return lines
+}
+
+func syncStackPRDescriptions(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndexes []int) error {
+	if len(stageIndexes) == 0 {
+		return nil
+	}
+
+	stackPRURLs, err := collectStackOpenPRURLs(repoRoot, stack)
+	if err != nil {
+		return err
+	}
+
+	updated := map[int]struct{}{}
+	for _, stageIndex := range stageIndexes {
+		if stageIndex < 0 || stageIndex >= len(stack.Stages) {
+			continue
+		}
+		if _, seen := updated[stageIndex]; seen {
+			continue
+		}
+
+		prURL := strings.TrimSpace(stackPRURLs[stageIndex])
+		if prURL == "" {
+			continue
+		}
+
+		body := stagePRBody(stack, stageIndex, stackPRURLs)
+		if _, err := runGH(repoRoot, "pr", "edit", prURL, "--body", body); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Synced PR description (%s): %s\n", stack.Stages[stageIndex].ID, prURL)
+		updated[stageIndex] = struct{}{}
+	}
+
+	return nil
 }
 
 func findOpenPRURL(repoRoot, headBranch string) (string, error) {

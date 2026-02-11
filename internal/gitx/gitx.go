@@ -15,11 +15,17 @@ type RepoInfo struct {
 }
 
 func SharedRoot(topLevel, commonDir string) string {
-	if filepath.Base(filepath.Clean(commonDir)) == ".git" {
-		return filepath.Dir(commonDir)
+	common := strings.TrimSpace(commonDir)
+	if common != "" {
+		common = filepath.Clean(common)
+		if filepath.Base(common) == ".git" {
+			return filepath.Dir(common)
+		}
+
+		return common
 	}
 
-	return topLevel
+	return strings.TrimSpace(topLevel)
 }
 
 func Run(dir string, args ...string) (string, error) {
@@ -47,17 +53,24 @@ func Run(dir string, args ...string) (string, error) {
 }
 
 func DiscoverRepo(startDir string) (*RepoInfo, error) {
-	top, err := Run(startDir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return nil, err
-	}
-
 	common, err := Run(startDir, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return nil, err
 	}
 	if !filepath.IsAbs(common) {
-		common = filepath.Clean(filepath.Join(top, common))
+		base, baseErr := Run(startDir, "rev-parse", "--show-toplevel")
+		if baseErr != nil {
+			base, baseErr = Run(startDir, "rev-parse", "--absolute-git-dir")
+			if baseErr != nil {
+				return nil, baseErr
+			}
+		}
+		common = filepath.Clean(filepath.Join(base, common))
+	}
+
+	top, err := Run(startDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		top = SharedRoot("", common)
 	}
 
 	defaultBranch, err := DetectDefaultBranch(startDir)
@@ -95,6 +108,17 @@ func DetectDefaultBranch(dir string) (string, error) {
 
 func BranchExists(dir, branch string) bool {
 	_, err := Run(dir, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+func RemoteBranchExists(dir, remote, branch string) bool {
+	remote = strings.TrimSpace(remote)
+	branch = strings.TrimSpace(branch)
+	if remote == "" || branch == "" {
+		return false
+	}
+
+	_, err := Run(dir, "ls-remote", "--exit-code", "--heads", remote, "refs/heads/"+branch)
 	return err == nil
 }
 
