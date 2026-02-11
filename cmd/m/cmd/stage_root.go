@@ -595,13 +595,38 @@ func collectStackOpenPRURLs(repoRoot string, stack *state.Stack) (map[int]string
 
 func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string) string {
 	stage := stack.Stages[stageIndex]
-	description := strings.TrimSpace(stage.Description)
+	hasDetails := strings.TrimSpace(stage.Outcome) != "" || len(stage.Implementation) > 0 || len(stage.Validation) > 0 || len(stage.Risks) > 0
 
 	var body strings.Builder
 	body.WriteString(fmt.Sprintf("Stage: %s", stage.ID))
-	if description != "" {
+	if outcome := strings.TrimSpace(stage.Outcome); outcome != "" {
+		body.WriteString("\n\n## Outcome\n")
+		body.WriteString(outcome)
+	}
+
+	if len(stage.Implementation) > 0 {
+		body.WriteString("\n\n## Implementation\n")
+		body.WriteString(formatBulletList(stage.Implementation))
+	}
+
+	if len(stage.Validation) > 0 {
+		body.WriteString("\n\n## Validation\n")
+		body.WriteString(formatBulletList(stage.Validation))
+	}
+
+	if len(stage.Risks) > 0 {
+		body.WriteString("\n\n## Risks\n")
+		for i, risk := range stage.Risks {
+			body.WriteString(fmt.Sprintf("- Risk: %s\n  Mitigation: %s", strings.TrimSpace(risk.Risk), strings.TrimSpace(risk.Mitigation)))
+			if i < len(stage.Risks)-1 {
+				body.WriteString("\n")
+			}
+		}
+	}
+
+	if !hasDetails {
 		body.WriteString("\n\n")
-		body.WriteString(description)
+		body.WriteString("No implementation details found for this stage.")
 	}
 
 	body.WriteString("\n\n## Stack PRs\n\n### Upstream\n")
@@ -629,6 +654,19 @@ func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string)
 	}
 
 	return body.String()
+}
+
+func formatBulletList(items []string) string {
+	var lines []string
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s", trimmed))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func stackPRListLines(stack *state.Stack, stageIndex int, stackPRURLs map[int]string, upstream bool) []string {

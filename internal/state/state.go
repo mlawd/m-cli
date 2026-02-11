@@ -30,12 +30,20 @@ type Stack struct {
 }
 
 type Stage struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-	Worktree    string `json:"worktree,omitempty"`
-	Parent      string `json:"parent_branch,omitempty"`
+	ID             string      `json:"id"`
+	Title          string      `json:"title"`
+	Outcome        string      `json:"outcome,omitempty"`
+	Implementation []string    `json:"implementation,omitempty"`
+	Validation     []string    `json:"validation,omitempty"`
+	Risks          []StageRisk `json:"risks,omitempty"`
+	Branch         string      `json:"branch,omitempty"`
+	Worktree       string      `json:"worktree,omitempty"`
+	Parent         string      `json:"parent_branch,omitempty"`
+}
+
+type StageRisk struct {
+	Risk       string `json:"risk"`
+	Mitigation string `json:"mitigation"`
 }
 
 func Dir(repoRoot string) string {

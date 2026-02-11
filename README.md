@@ -14,7 +14,7 @@ go run ./cmd/m help
 go run ./cmd/m version
 go run ./cmd/m init
 go run ./cmd/m stack new my-stack
-go run ./cmd/m stack attach-plan ./plan.yaml
+go run ./cmd/m stack attach-plan ./plan.md
 go run ./cmd/m stack remove my-stack
 go run ./cmd/m stack list
 go run ./cmd/m stack select my-stack
@@ -34,7 +34,7 @@ With Makefile args forwarding:
 ```bash
 make run ARGS="init"
 make run ARGS="stack new my-stack"
-make run ARGS="stack attach-plan ./plan.yaml"
+make run ARGS="stack attach-plan ./plan.md"
 make run ARGS="stage list"
 ```
 
@@ -45,8 +45,8 @@ make run ARGS="stage list"
 
 ## Stack + Stage workflow
 
-- `m stack new <stack-name> [--plan-file <plan.yaml>]` creates a stack and auto-selects it
-- `m stack attach-plan <plan.yaml>` attaches a plan to the current stack (fails if one is already attached)
+- `m stack new <stack-name> [--plan-file <plan.md>]` creates a stack and auto-selects it
+- `m stack attach-plan <plan.md>` attaches a plan to the current stack (fails if one is already attached)
 - `m stack list` lists stacks and marks the selected one
 - `m stack remove <stack-name> [--force] [--delete-worktrees]` removes a stack from local state
 - `m stack select <stack-name>` sets current stack context
@@ -62,15 +62,39 @@ make run ARGS="stage list"
 
 ### Plan file format
 
-```yaml
-version: 1
+```markdown
+---
+version: 2
 title: Example rollout
 stages:
   - id: foundation
     title: Foundation setup
-    description: Optional details
+    outcome: Core architecture and interfaces are in place.
+    implementation:
+      - Add initial domain models and interfaces.
+      - Wire baseline service layer.
+    validation:
+      - go test ./...
+      - verify stack builds locally
+    risks:
+      - risk: Scope creep during setup
+        mitigation: Keep scope narrow and interface-first
   - id: api-wiring
     title: Wire API endpoints
+    outcome: Public endpoints are connected to services.
+    implementation:
+      - Add handlers and routing.
+      - Connect handlers to service layer.
+    validation:
+      - go test ./...
+      - smoke test API endpoints
+    risks:
+      - risk: Contract mismatch between handler and service
+        mitigation: Add request/response fixtures and tests
+---
+
+## Notes
+Optional narrative context for humans.
 ```
 
 ## Build a binary
@@ -91,7 +115,7 @@ go run ./cmd/m mcp serve
 The server exposes:
 
 - resources:
-  - `m://plan/format` (plan YAML format + validation rules)
+  - `m://plan/format` (plan markdown/frontmatter format + validation rules)
   - `m://guide/workflow` (planning guidance)
   - `m://commands/reference` (command quick reference)
   - `m://state/context` (JSON snapshot of current repo stack/stage context)
@@ -152,6 +176,6 @@ m help
 - `cmd/m/cmd/` - Cobra commands (`root`, `init`, `stack`, `stage`, `version`)
 - `internal/gitx/` - git command helpers
 - `internal/localignore/` - repo-local ignore helpers (`.git/info/exclude`)
-- `internal/plan/` - YAML plan parser/validator
+- `internal/plan/` - plan parser/validator (markdown + YAML frontmatter)
 - `internal/state/` - repo-local state model + persistence
 - `go.mod` - Go module metadata

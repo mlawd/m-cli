@@ -168,12 +168,24 @@ func registerTools(srv *mcpserver.MCPServer) {
 				return nil, err
 			}
 
-			steps := []string{
-				"Read `m://state/context` or call `get_m_context`.",
-				"If no stack is selected, run `m stack list` then `m stack select <stack-name>`.",
-				"If no stage is selected, run `m stage list` then `m stage select <stage-id>`.",
-				"Execute implementation tasks for the selected stage only.",
-				"Before handoff, re-check with `m stage current` and summarize stage-scoped changes.",
+			plan := map[string][]string{
+				"outcome": {
+					"Define the stage outcome in one concrete sentence describing what done looks like.",
+					"Bound scope to the selected stage only and list excluded work explicitly.",
+				},
+				"implementation": {
+					"List the exact code paths and components that need updates.",
+					"Break execution into ordered, concrete steps with clear handoff points.",
+					"Call out data model, API, and UI changes separately when applicable.",
+				},
+				"validation": {
+					"List specific test and verification commands with expected outcomes.",
+					"Include one end-to-end smoke check for the stage behavior.",
+				},
+				"risks": {
+					"Identify likely implementation risks for this stage.",
+					"Pair every risk with a concrete mitigation action.",
+				},
 			}
 
 			headline := fmt.Sprintf("Goal: %s", goal)
@@ -186,14 +198,39 @@ func registerTools(srv *mcpserver.MCPServer) {
 
 			var textBuilder strings.Builder
 			textBuilder.WriteString(headline)
-			textBuilder.WriteString("\n\nSuggested plan:\n")
-			for i, step := range steps {
-				textBuilder.WriteString(fmt.Sprintf("%d. %s\n", i+1, step))
+			textBuilder.WriteString("\n\nSuggested stage implementation plan:\n")
+			textBuilder.WriteString("\nOutcome:\n")
+			for _, item := range plan["outcome"] {
+				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
+			}
+			textBuilder.WriteString("\nImplementation:\n")
+			for _, item := range plan["implementation"] {
+				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
+			}
+			textBuilder.WriteString("\nValidation:\n")
+			for _, item := range plan["validation"] {
+				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
+			}
+			textBuilder.WriteString("\nRisks and mitigations:\n")
+			for _, item := range plan["risks"] {
+				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
 			}
 
+			textBuilder.WriteString("\nContext checks:\n")
+			textBuilder.WriteString("1. Read `m://state/context` or call `get_m_context`.\n")
+			textBuilder.WriteString("2. If no stack is selected, run `m stack list` then `m stack select <stack-name>`.\n")
+			textBuilder.WriteString("3. If no stage is selected, run `m stage list` then `m stage select <stage-id>`.\n")
+			textBuilder.WriteString("4. Before handoff, run `m stage current` and summarize stage-scoped changes.\n")
+
 			structured := map[string]interface{}{
-				"goal":  goal,
-				"steps": steps,
+				"goal": goal,
+				"plan": plan,
+				"context_checks": []string{
+					"Read `m://state/context` or call `get_m_context`.",
+					"If no stack is selected, run `m stack list` then `m stack select <stack-name>`.",
+					"If no stage is selected, run `m stage list` then `m stage select <stage-id>`.",
+					"Before handoff, run `m stage current` and summarize stage-scoped changes.",
+				},
 				"context": map[string]interface{}{
 					"current_stack": snapshot.CurrentStack,
 					"current_stage": snapshot.CurrentStage,
@@ -218,7 +255,7 @@ func registerPrompts(srv *mcpserver.MCPServer) {
 				goal = "Complete the next stage in this repository"
 			}
 
-			promptText := fmt.Sprintf("Goal: %s\n\nUse the m context and workflow resources before planning. Propose a stage-aligned plan and identify the exact m commands needed to confirm or update stack/stage context.", goal)
+			promptText := fmt.Sprintf("Goal: %s\n\nUse the m context and workflow resources before planning. Propose a concrete stage-aligned implementation plan with outcome, implementation steps, validation, and risks/mitigations, then identify the exact m commands needed to confirm or update stack/stage context.", goal)
 
 			return mmcp.NewGetPromptResult(
 				"Stage-aware planning prompt for m",

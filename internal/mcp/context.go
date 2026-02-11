@@ -77,11 +77,11 @@ func planningGuide() string {
    - m init
 
 2) Create a stack when starting a new effort:
-   - m stack new <stack-name> [--plan-file ./plan.yaml]
+   - m stack new <stack-name> [--plan-file ./plan.md]
    - This auto-selects the stack.
 
 3) If the stack was created without a plan, attach one before stage commands:
-   - m stack attach-plan ./plan.yaml
+   - m stack attach-plan ./plan.md
 
 4) Confirm or switch current stack:
    - m stack current
@@ -122,10 +122,10 @@ func commandReference() string {
   Initialize repo-local .m state for this repository.
 
 - m stack new <stack-name> [--plan-file <file>]
-  Create a stack, optionally from a YAML plan file, and select it.
+  Create a stack, optionally from a markdown plan file (YAML frontmatter), and select it.
 
 - m stack attach-plan <file>
-  Attach a YAML plan file to the current stack (fails if a plan is already attached).
+  Attach a markdown plan file to the current stack (fails if a plan is already attached).
 
 - m stack list
   List stacks and indicate which one is current.
@@ -166,37 +166,69 @@ func commandReference() string {
 }
 
 func planFormatGuide() string {
-	return strings.TrimSpace(`m plan file format (YAML):
+	return strings.TrimSpace(`m plan file format (Markdown + YAML frontmatter):
 
-Required top-level fields:
-- version: must be 1
-- stages: non-empty list
+Required file structure:
+- File must start with YAML frontmatter delimited by ---
+- Frontmatter must include:
+  - version: must be 2
+  - stages: non-empty list
+- Markdown body after frontmatter is optional
 
-Optional top-level fields:
+Optional top-level frontmatter fields:
 - title: free-form string
 
-Each stage entry:
-- id: required, unique, kebab-case letters/numbers only
+Each stage entry requires:
+- id: unique, kebab-case letters/numbers only
       regex: ^[a-z0-9]+(?:-[a-z0-9]+)*$
-- title: required, non-empty string
-- description: optional string
+- title: non-empty string
+- outcome: non-empty string describing done state
+- implementation: non-empty list of non-empty strings
+- validation: non-empty list of non-empty strings
+- risks: non-empty list of objects with:
+  - risk: non-empty string
+  - mitigation: non-empty string
 
 Validation rules enforced by m:
-- plan version must be exactly 1
+- plan version must be exactly 2
 - at least one stage is required
 - stage ids must match the regex above
 - stage ids must be unique
-- each stage must include a title
+- each stage must include all required fields
 
 Example:
 
-version: 1
+---
+version: 2
 title: Example rollout
 stages:
   - id: foundation
     title: Foundation setup
-    description: Optional details
+    outcome: Core architecture and interfaces are in place.
+    implementation:
+      - Add initial domain models and interfaces.
+      - Wire baseline service layer.
+    validation:
+      - go test ./...
+      - verify stack builds locally
+    risks:
+      - risk: Scope creep during setup
+        mitigation: Keep a narrow interface-first slice
   - id: api-wiring
     title: Wire API endpoints
+    outcome: Public endpoints are connected to services.
+    implementation:
+      - Add handlers and routing.
+      - Connect handlers to service layer.
+    validation:
+      - go test ./...
+      - smoke test API endpoints
+    risks:
+      - risk: Contract mismatch between handler and service
+        mitigation: Add request/response fixtures and tests
+---
+
+## Notes
+Optional narrative, links, and context.
 `)
 }

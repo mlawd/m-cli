@@ -271,7 +271,7 @@ func newStackNewCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "new <stack-name>",
-		Short: "Create a stack, optionally from a YAML plan file",
+		Short: "Create a stack, optionally from a markdown plan file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stackName := strings.TrimSpace(args[0])
@@ -324,7 +324,7 @@ func newStackNewCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&planFile, "plan-file", "", "YAML plan file path")
+	cmd.Flags().StringVar(&planFile, "plan-file", "", "Markdown plan file path")
 
 	return cmd
 }
@@ -384,6 +384,9 @@ func parseStagesFromPlanFile(planFile string) (string, []state.Stage, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	if ext := strings.ToLower(filepath.Ext(absolutePlanFile)); ext != ".md" {
+		return "", nil, fmt.Errorf("plan file must use .md extension (markdown with YAML frontmatter)")
+	}
 
 	parsedPlan, err := plan.ParseFile(absolutePlanFile)
 	if err != nil {
@@ -392,10 +395,21 @@ func parseStagesFromPlanFile(planFile string) (string, []state.Stage, error) {
 
 	stages := make([]state.Stage, 0, len(parsedPlan.Stages))
 	for _, stage := range parsedPlan.Stages {
+		risks := make([]state.StageRisk, 0, len(stage.Risks))
+		for _, risk := range stage.Risks {
+			risks = append(risks, state.StageRisk{
+				Risk:       risk.Risk,
+				Mitigation: risk.Mitigation,
+			})
+		}
+
 		stages = append(stages, state.Stage{
-			ID:          stage.ID,
-			Title:       stage.Title,
-			Description: stage.Description,
+			ID:             stage.ID,
+			Title:          stage.Title,
+			Outcome:        stage.Outcome,
+			Implementation: append([]string(nil), stage.Implementation...),
+			Validation:     append([]string(nil), stage.Validation...),
+			Risks:          risks,
 		})
 	}
 

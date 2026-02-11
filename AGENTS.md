@@ -12,6 +12,7 @@ The default prompt is maintained in `MCP_PROMPT.md`.
 
 - Prefer `m` for stack/stage context and stack-managed branch workflows.
 - Before planning or edits, check context via MCP (`get_m_context`) or `m stack current` / `m stage current`.
+- Plan files are markdown documents with YAML frontmatter and must follow the v2 plan format from `m://plan/format`.
 - Do not create manual branch/worktree structures when equivalent `m` commands exist.
 - Use raw git only when the action is outside `m` capabilities.
 

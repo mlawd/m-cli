@@ -87,9 +87,17 @@ func TestStagePRBodyIncludesStackLinks(t *testing.T) {
 	stack := &state.Stack{
 		Name: "test-stack",
 		Stages: []state.Stage{
-			{ID: "stage-1", Description: "First"},
-			{ID: "stage-2", Description: "Second"},
-			{ID: "stage-3", Description: "Third"},
+			{ID: "stage-1", Outcome: "First outcome"},
+			{
+				ID:             "stage-2",
+				Outcome:        "Second outcome",
+				Implementation: []string{"Create service interface", "Wire checkout handler"},
+				Validation:     []string{"go test ./...", "exercise checkout quote endpoint"},
+				Risks: []state.StageRisk{
+					{Risk: "Payment gateway latency spikes", Mitigation: "Add retry with backoff and timeout metrics"},
+				},
+			},
+			{ID: "stage-3", Outcome: "Third outcome"},
 		},
 	}
 
@@ -101,7 +109,15 @@ func TestStagePRBodyIncludesStackLinks(t *testing.T) {
 	body := stagePRBody(stack, 1, prURLs)
 	checks := []string{
 		"Stage: stage-2",
-		"Second",
+		"## Outcome",
+		"Second outcome",
+		"## Implementation",
+		"- Create service interface",
+		"## Validation",
+		"- go test ./...",
+		"## Risks",
+		"Risk: Payment gateway latency spikes",
+		"Mitigation: Add retry with backoff and timeout metrics",
 		"## Stack PRs",
 		"### Upstream",
 		"- stage-1: https://github.com/org/repo/pull/10",
@@ -128,6 +144,9 @@ func TestStagePRBodyUsesNotCreatedPlaceholder(t *testing.T) {
 	body := stagePRBody(stack, 1, map[int]string{})
 	if !strings.Contains(body, "- stage-1: (not created)") {
 		t.Fatalf("expected placeholder for missing upstream PR; got:\n%s", body)
+	}
+	if !strings.Contains(body, "No implementation details found for this stage.") {
+		t.Fatalf("expected fallback details message; got:\n%s", body)
 	}
 	if !strings.Contains(body, "### Downstream\n- None") {
 		t.Fatalf("expected downstream none section; got:\n%s", body)

@@ -22,5 +22,5 @@ Behavior rules:
 
 Output style:
 - Start with current m context (stack/stage).
-- Then provide a short stage-aligned plan.
+- Then provide a concrete stage-aligned implementation plan with outcome, implementation steps, validation steps, and risks/mitigations.
 - Then list exact `m` commands needed to confirm or update context.
