@@ -53,7 +53,7 @@ func BuildContextSnapshot(cwd string, includeStacks bool) (*ContextSnapshot, err
 
 	if snapshot.CurrentStack != "" {
 		if stack, _ := state.FindStack(stacksFile, snapshot.CurrentStack); stack != nil {
-			snapshot.CurrentStage = strings.TrimSpace(stack.CurrentStage)
+			snapshot.CurrentStage = state.EffectiveCurrentStage(stack, repo.TopLevel)
 		} else {
 			snapshot.Notes = append(snapshot.Notes, fmt.Sprintf("Current stack %q is missing from stacks state.", snapshot.CurrentStack))
 		}

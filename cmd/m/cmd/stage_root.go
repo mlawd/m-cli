@@ -56,13 +56,14 @@ func newStagePushCmd() *cobra.Command {
 				return err
 			}
 
-			if strings.TrimSpace(stack.CurrentStage) == "" {
+			currentStageID := state.EffectiveCurrentStage(stack, repo.worktreePath)
+			if currentStageID == "" {
 				return fmt.Errorf("no stage selected; run: m stage select <stage-id>")
 			}
 
-			stage, stageIndex := state.FindStage(stack, stack.CurrentStage)
+			stage, stageIndex := state.FindStage(stack, currentStageID)
 			if stage == nil {
-				return fmt.Errorf("current stage %q not found in stack %q", stack.CurrentStage, stack.Name)
+				return fmt.Errorf("current stage %q not found in stack %q", currentStageID, stack.Name)
 			}
 
 			branch := strings.TrimSpace(stage.Branch)
@@ -227,6 +228,8 @@ func newStageListCmd() *cobra.Command {
 				return err
 			}
 
+			effectiveCurrentStage := state.EffectiveCurrentStage(stack, repo.worktreePath)
+
 			if len(stack.Stages) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No stages")
 				return nil
@@ -234,7 +237,7 @@ func newStageListCmd() *cobra.Command {
 
 			for idx, stage := range stack.Stages {
 				marker := " "
-				if stage.ID == stack.CurrentStage {
+				if stage.ID == effectiveCurrentStage {
 					marker = "*"
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s %d. %s - %s\n", marker, idx+1, stage.ID, stage.Title)
@@ -304,11 +307,12 @@ func newStageCurrentCmd() *cobra.Command {
 				return err
 			}
 
-			if strings.TrimSpace(stack.CurrentStage) == "" {
+			currentStageID := state.EffectiveCurrentStage(stack, repo.worktreePath)
+			if currentStageID == "" {
 				return nil
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), stack.CurrentStage)
+			fmt.Fprintln(cmd.OutOrStdout(), currentStageID)
 			return nil
 		},
 	}

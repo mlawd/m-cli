@@ -8,8 +8,9 @@ import (
 )
 
 type repoContext struct {
-	rootPath string
-	common   string
+	rootPath     string
+	common       string
+	worktreePath string
 }
 
 func discoverRepoContext() (*repoContext, error) {
@@ -18,7 +19,11 @@ func discoverRepoContext() (*repoContext, error) {
 		return nil, fmt.Errorf("discover repo: %w", err)
 	}
 
-	return &repoContext{rootPath: gitx.SharedRoot(repo.TopLevel, repo.CommonDir), common: repo.CommonDir}, nil
+	return &repoContext{
+		rootPath:     gitx.SharedRoot(repo.TopLevel, repo.CommonDir),
+		common:       repo.CommonDir,
+		worktreePath: repo.TopLevel,
+	}, nil
 }
 
 func loadState(ctx *repoContext) (*state.Config, *state.Stacks, error) {

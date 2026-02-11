@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -167,6 +168,23 @@ func NewStack(name, planFile string, stages []Stage) Stack {
 	}
 }
 
+func EffectiveCurrentStage(stack *Stack, workspaceRoot string) string {
+	if stack == nil {
+		return ""
+	}
+
+	workspace := normalizePath(workspaceRoot)
+	if workspace != "" {
+		for _, stage := range stack.Stages {
+			if pathEqual(stage.Worktree, workspace) {
+				return strings.TrimSpace(stage.ID)
+			}
+		}
+	}
+
+	return strings.TrimSpace(stack.CurrentStage)
+}
+
 func defaultConfig() *Config {
 	return &Config{Version: schemaVersion}
 }
@@ -192,4 +210,29 @@ func writeJSONAtomic(path string, value any) error {
 	}
 
 	return os.Rename(tmpPath, path)
+}
+
+func pathEqual(a, b string) bool {
+	aPath := normalizePath(a)
+	bPath := normalizePath(b)
+
+	if aPath == "" || bPath == "" {
+		return false
+	}
+
+	return aPath == bPath
+}
+
+func normalizePath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+
+	abs, err := filepath.Abs(trimmed)
+	if err == nil {
+		trimmed = abs
+	}
+
+	return filepath.Clean(trimmed)
 }
