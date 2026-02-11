@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mlawd/m-cli/internal/agent"
 	"github.com/mlawd/m-cli/internal/gitx"
 	"github.com/mlawd/m-cli/internal/state"
 	"github.com/spf13/cobra"
@@ -116,7 +117,9 @@ func newStagePushCmd() *cobra.Command {
 }
 
 func newStageStartNextCmd() *cobra.Command {
-	return &cobra.Command{
+	var noOpen bool
+
+	cmd := &cobra.Command{
 		Use:   "start-next",
 		Short: "Start and select the next stage in order",
 		Args:  cobra.NoArgs,
@@ -190,9 +193,17 @@ func newStageStartNextCmd() *cobra.Command {
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Current stage: %s\n", target.ID)
-			return nil
+			if noOpen {
+				return nil
+			}
+
+			return agent.StartOpenCode(worktree)
 		},
 	}
+
+	cmd.Flags().BoolVar(&noOpen, "no-open", false, "Skip launching opencode")
+
+	return cmd
 }
 
 func newStageListCmd() *cobra.Command {

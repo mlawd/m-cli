@@ -90,7 +90,7 @@ func planningGuide() string {
 5) Break work into ordered stages and select one:
    - m stage list
    - m stage select <stage-id>
-   - m stage start-next
+   - m stage start-next [--no-open]
    - m stage current
 
 6) Keep stack branches synchronized as upstream changes land:
@@ -148,7 +148,7 @@ func commandReference() string {
   Print the active stage id for the current stack.
 
 - m stage start-next
-  Start the next stage by creating/reusing its branch and worktree under .m/worktrees/.
+  Start the next stage by creating/reusing its branch and worktree under .m/worktrees/, selecting it, and opening opencode in that worktree (use --no-open to skip).
 
 - m stage push
   Push the current stage branch and create a PR if an open one does not exist.
