@@ -136,9 +136,9 @@ func newStageStartNextCmd() *cobra.Command {
 				if err := gitx.CreateBranch(repo.rootPath, branch, parentBranch); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Created %s (from %s)\n", branch, parentBranch)
+				outSuccess(cmd.OutOrStdout(), "Created branch %s from %s", branch, parentBranch)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Reusing %s\n", branch)
+				outReuse(cmd.OutOrStdout(), "Reusing branch %s", branch)
 			}
 
 			worktree := target.Worktree
@@ -153,11 +153,11 @@ func newStageStartNextCmd() *cobra.Command {
 				if err := gitx.AddWorktree(repo.rootPath, worktree, branch); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Created worktree %s\n", worktree)
+				outSuccess(cmd.OutOrStdout(), "Created worktree: %s", worktree)
 			} else if err != nil {
 				return err
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Reusing worktree %s\n", worktree)
+				outReuse(cmd.OutOrStdout(), "Reusing worktree: %s", worktree)
 			}
 
 			target.Branch = branch
@@ -169,7 +169,7 @@ func newStageStartNextCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Current stage: %s\n", target.ID)
+			outCurrent(cmd.OutOrStdout(), "Current stage: %s", target.ID)
 			if noOpen {
 				return nil
 			}
@@ -207,16 +207,16 @@ func newStageListCmd() *cobra.Command {
 			effectiveCurrentStage := state.EffectiveCurrentStage(stack, repo.worktreePath)
 
 			if len(stack.Stages) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No stages")
+				outInfo(cmd.OutOrStdout(), "No stages found in current stack plan")
 				return nil
 			}
 
 			for idx, stage := range stack.Stages {
-				marker := " "
 				if stage.ID == effectiveCurrentStage {
-					marker = "*"
+					outCurrent(cmd.OutOrStdout(), "%d. %s - %s", idx+1, stage.ID, stage.Title)
+					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %d. %s - %s\n", marker, idx+1, stage.ID, stage.Title)
+				fmt.Fprintf(cmd.OutOrStdout(), "  %d. %s - %s\n", idx+1, stage.ID, stage.Title)
 			}
 
 			return nil
@@ -256,7 +256,7 @@ func newStageSelectCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), selectedStage)
+			outCurrent(cmd.OutOrStdout(), "Current stage: %s", selectedStage)
 			return nil
 		},
 	}
@@ -288,7 +288,7 @@ func newStageCurrentCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), currentStageID)
+			outCurrent(cmd.OutOrStdout(), "Current stage: %s", currentStageID)
 			return nil
 		},
 	}
@@ -414,9 +414,9 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		return err
 	}
 	if forceWithLease {
-		fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s (--force-with-lease)\n", branch)
+		outAction(cmd.OutOrStdout(), "Force-pushed branch %s (--force-with-lease)", branch)
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s\n", branch)
+		outAction(cmd.OutOrStdout(), "Pushed branch %s", branch)
 	}
 
 	prURL, err := findOpenPRURL(repoRoot, branch)
@@ -433,7 +433,7 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		if _, err := gitx.Run(repoRoot, "push", "-u", "origin", baseBranch); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Auto-pushed missing base branch %s\n", baseBranch)
+		outWarn(cmd.OutOrStdout(), "Base branch was missing remotely; pushed %s", baseBranch)
 	}
 
 	stackPRURLs, err := collectStackOpenPRURLs(repoRoot, stack)
@@ -451,8 +451,8 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		if _, err := runGH(repoRoot, "pr", "edit", prURL, "--body", body); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Existing PR (%s): %s\n", stage.ID, prURL)
-		fmt.Fprintf(cmd.OutOrStdout(), "Updated PR description (%s): %s\n", stage.ID, prURL)
+		outLink(cmd.OutOrStdout(), "Found existing PR for %s: %s", stage.ID, prURL)
+		outSuccess(cmd.OutOrStdout(), "Updated PR description for %s: %s", stage.ID, prURL)
 		return nil
 	}
 
@@ -468,7 +468,7 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		return fmt.Errorf("failed to determine PR URL after creation")
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Created PR (%s): %s\n", stage.ID, prURL)
+	outSuccess(cmd.OutOrStdout(), "Created PR for %s: %s", stage.ID, prURL)
 	return nil
 }
 
@@ -578,7 +578,7 @@ func syncStackPRDescriptions(cmd *cobra.Command, repoRoot string, stack *state.S
 		if _, err := runGH(repoRoot, "pr", "edit", prURL, "--body", body); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Synced PR description (%s): %s\n", stack.Stages[stageIndex].ID, prURL)
+		outSuccess(cmd.OutOrStdout(), "Synced PR description for %s: %s", stack.Stages[stageIndex].ID, prURL)
 		updated[stageIndex] = struct{}{}
 	}
 

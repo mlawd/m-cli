@@ -69,7 +69,7 @@ func newStackRemoveCmd() *cobra.Command {
 				if err := os.RemoveAll(stackWorktreesDir); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Removed worktrees: %s\n", stackWorktreesDir)
+				outStyled(cmd.OutOrStdout(), ansiBlue, "🧹", "Removed worktrees: %s", stackWorktreesDir)
 			}
 
 			stacksFile.Stacks = append(stacksFile.Stacks[:stackIdx], stacksFile.Stacks[stackIdx+1:]...)
@@ -84,7 +84,7 @@ func newStackRemoveCmd() *cobra.Command {
 				}
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed stack %q\n", stack.Name)
+			outSuccess(cmd.OutOrStdout(), "Removed stack %q", stack.Name)
 			return nil
 		},
 	}
@@ -159,12 +159,12 @@ func newStackRebaseCmd() *cobra.Command {
 					if err := gitx.AddWorktree(repo.rootPath, worktree, branch); err != nil {
 						return err
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "Created worktree %s\n", worktree)
+					outSuccess(cmd.OutOrStdout(), "Created worktree: %s", worktree)
 				} else if err != nil {
 					return err
 				}
 
-				fmt.Fprintf(cmd.OutOrStdout(), "Rebasing %s onto %s\n", branch, parentBranch)
+				outStyled(cmd.OutOrStdout(), ansiBlue, "🔄", "Rebasing %s onto %s", branch, parentBranch)
 				if _, err := gitx.Run(worktree, "rebase", parentBranch); err != nil {
 					return fmt.Errorf("rebase failed for stage %q (%s): %w\nResolve in %s and run `git rebase --continue` or `git rebase --abort`", stage.ID, branch, err, worktree)
 				}
@@ -184,11 +184,11 @@ func newStackRebaseCmd() *cobra.Command {
 			}
 
 			if rebasedCount == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No started stage branches to rebase")
+				outInfo(cmd.OutOrStdout(), "Nothing to rebase (no started stage branches)")
 				return nil
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Rebased %d stage branch(es)\n", rebasedCount)
+			outSuccess(cmd.OutOrStdout(), "Rebased %d stage branch(es)", rebasedCount)
 			return nil
 		},
 	}
@@ -227,7 +227,7 @@ func newStackPushCmd() *cobra.Command {
 			}
 
 			if len(startedStageIndexes) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No started stage branches to push")
+				outInfo(cmd.OutOrStdout(), "Nothing to push (no started stage branches)")
 				return nil
 			}
 
@@ -241,7 +241,7 @@ func newStackPushCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Pushed %d stage branch(es) with --force-with-lease\n", len(startedStageIndexes))
+			outAction(cmd.OutOrStdout(), "Pushed %d stage branch(es) with --force-with-lease", len(startedStageIndexes))
 			return nil
 		},
 	}
@@ -313,11 +313,11 @@ func newStackNewCmd() *cobra.Command {
 			}
 
 			if resolvedPlanFile == "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Created stack %q with no attached plan\n", stackName)
+				outSuccess(cmd.OutOrStdout(), "Created stack %q (no plan attached yet)", stackName)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "Created stack %q with %d stages\n", stackName, len(stages))
+				outSuccess(cmd.OutOrStdout(), "Created stack %q with %d stage(s)", stackName, len(stages))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Current stack: %s\n", stackName)
+			outCurrent(cmd.OutOrStdout(), "Current stack: %s", stackName)
 			return nil
 		},
 	}
@@ -370,8 +370,8 @@ func newStackAttachPlanCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Attached plan to stack %q with %d stages\n", stack.Name, len(parsedStages))
-			fmt.Fprintf(cmd.OutOrStdout(), "Plan file: %s\n", absolutePlanFile)
+			outSuccess(cmd.OutOrStdout(), "Attached plan to stack %q with %d stage(s)", stack.Name, len(parsedStages))
+			outInfo(cmd.OutOrStdout(), "Plan file: %s", absolutePlanFile)
 			return nil
 		},
 	}
@@ -417,16 +417,16 @@ func newStackListCmd() *cobra.Command {
 			}
 
 			if len(stacksFile.Stacks) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No stacks")
+				outInfo(cmd.OutOrStdout(), "No stacks found. Create one with `m stack new <name>`")
 				return nil
 			}
 
 			for _, stack := range stacksFile.Stacks {
-				marker := " "
 				if stack.Name == config.CurrentStack {
-					marker = "*"
+					outCurrent(cmd.OutOrStdout(), "%s  ·  %d stage(s)", stack.Name, len(stack.Stages))
+					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s (%d stages)\n", marker, stack.Name, len(stack.Stages))
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s  ·  %d stage(s)\n", stack.Name, len(stack.Stages))
 			}
 
 			return nil
@@ -461,7 +461,7 @@ func newStackSelectCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), stackName)
+			outCurrent(cmd.OutOrStdout(), "Current stack: %s", stackName)
 			return nil
 		},
 	}
@@ -487,7 +487,7 @@ func newStackCurrentCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), config.CurrentStack)
+			outCurrent(cmd.OutOrStdout(), "Current stack: %s", config.CurrentStack)
 			return nil
 		},
 	}

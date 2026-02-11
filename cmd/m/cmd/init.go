@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/mlawd/m-cli/internal/localignore"
 	"github.com/mlawd/m-cli/internal/state"
 	"github.com/spf13/cobra"
@@ -27,7 +25,7 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Initialized local state in %s\n", state.Dir(repo.rootPath))
+			outSuccess(cmd.OutOrStdout(), "Initialized m state at %s", state.Dir(repo.rootPath))
 			return nil
 		},
 	}
