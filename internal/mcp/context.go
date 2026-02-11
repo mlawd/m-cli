@@ -90,6 +90,7 @@ func planningGuide() string {
 5) Break work into ordered stages and select one:
    - m stage list
    - m stage select <stage-id>
+   - m stage open
    - m stage start-next [--no-open]
    - m stage current
 
@@ -152,6 +153,9 @@ func commandReference() string {
 
 - m stage current
   Print the active stage id for the current stack.
+
+- m stage open
+  Interactively select a stack and stage, create/reuse branch + worktree for that stage, select it, and open opencode in that worktree without a prompt.
 
 - m stage start-next
   Start the next stage by creating/reusing its branch and worktree under .m/worktrees/, selecting it, and opening opencode in that worktree (use --no-open to skip).

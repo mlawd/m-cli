@@ -21,6 +21,7 @@ go run ./cmd/m stack select my-stack
 go run ./cmd/m stack current
 go run ./cmd/m stage list
 go run ./cmd/m stage select foundation
+go run ./cmd/m stage open
 go run ./cmd/m stage start-next
 go run ./cmd/m stack rebase
 go run ./cmd/m stack push
@@ -53,6 +54,7 @@ make run ARGS="stage list"
 - `m stage list` lists stages for the current stack (requires attached plan)
 - `m stage select <stage-id>` selects a stage in the current stack
 - `m stage current` prints the current stage id (empty if none)
+- `m stage open` interactively selects stack and stage, upserts branch/worktree for that stage, selects it, and opens `opencode` in the stage worktree without a prompt
 - `m stage start-next` creates/reuses the next stage branch and worktree under `.m/worktrees/`, selects it, and opens `opencode` in that worktree with an initial prompt like `Implement stage <id>: <title>` (use `--no-open` to skip)
 - `m stack rebase` rebases started stage branches in order (first onto default branch, then each onto the previous stage)
 - `m stack push` pushes started stage branches in order with `--force-with-lease` and creates missing PRs

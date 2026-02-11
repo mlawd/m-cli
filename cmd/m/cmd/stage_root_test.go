@@ -133,3 +133,12 @@ func TestStagePRBodyUsesNotCreatedPlaceholder(t *testing.T) {
 		t.Fatalf("expected downstream none section; got:\n%s", body)
 	}
 }
+
+func TestPluralSuffix(t *testing.T) {
+	if got := pluralSuffix(1); got != "" {
+		t.Fatalf("pluralSuffix(1) = %q, want empty string", got)
+	}
+	if got := pluralSuffix(2); got != "s" {
+		t.Fatalf("pluralSuffix(2) = %q, want s", got)
+	}
+}

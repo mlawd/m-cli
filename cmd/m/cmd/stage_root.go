@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/manifoldco/promptui"
 	"github.com/mlawd/m-cli/internal/agent"
 	"github.com/mlawd/m-cli/internal/gitx"
 	"github.com/mlawd/m-cli/internal/state"
@@ -24,6 +25,7 @@ func newStageRootCmd() *cobra.Command {
 		newStageListCmd(),
 		newStageSelectCmd(),
 		newStageCurrentCmd(),
+		newStageOpenCmd(),
 		newStageStartNextCmd(),
 		newStagePushCmd(),
 	)
@@ -93,6 +95,61 @@ func newStagePushCmd() *cobra.Command {
 	}
 }
 
+func newStageOpenCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "open",
+		Short: "Interactively choose stack/stage and open opencode in worktree",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := discoverRepoContext()
+			if err != nil {
+				return err
+			}
+
+			config, stacksFile, err := loadState(repo)
+			if err != nil {
+				return err
+			}
+
+			if len(stacksFile.Stacks) == 0 {
+				return fmt.Errorf("no stacks found; run: m stack new <stack-name>")
+			}
+
+			stackIndexes := []int{}
+			stackOptions := []string{}
+			for idx, stack := range stacksFile.Stacks {
+				if strings.TrimSpace(stack.PlanFile) == "" || len(stack.Stages) == 0 {
+					continue
+				}
+				stackIndexes = append(stackIndexes, idx)
+				stackOptions = append(stackOptions, fmt.Sprintf("%s  (%d stage%s)", stack.Name, len(stack.Stages), pluralSuffix(len(stack.Stages))))
+			}
+
+			if len(stackOptions) == 0 {
+				return fmt.Errorf("no stacks with attached plans found; run: m stack attach-plan <plan-file>")
+			}
+
+			stackChoice, err := promptSelectIndex("Select stack", stackOptions)
+			if err != nil {
+				return err
+			}
+
+			stack := &stacksFile.Stacks[stackIndexes[stackChoice]]
+			stageOptions := make([]string, 0, len(stack.Stages))
+			for _, stage := range stack.Stages {
+				stageOptions = append(stageOptions, fmt.Sprintf("%s - %s", stage.ID, stage.Title))
+			}
+
+			stageChoice, err := promptSelectIndex(fmt.Sprintf("Select stage for %s", stack.Name), stageOptions)
+			if err != nil {
+				return err
+			}
+
+			return startStageAtIndex(cmd, repo, config, stacksFile, stack, stageChoice, false, true)
+		},
+	}
+}
+
 func newStageStartNextCmd() *cobra.Command {
 	var noOpen bool
 
@@ -121,60 +178,7 @@ func newStageStartNextCmd() *cobra.Command {
 				return err
 			}
 
-			target := &stack.Stages[nextIndex]
-			branch := target.Branch
-			if strings.TrimSpace(branch) == "" {
-				branch = stageBranchName(stack.Name, nextIndex, target.ID)
-			}
-
-			parentBranch, err := parentBranchForStage(repo.rootPath, stack, nextIndex)
-			if err != nil {
-				return err
-			}
-
-			if !gitx.BranchExists(repo.rootPath, branch) {
-				if err := gitx.CreateBranch(repo.rootPath, branch, parentBranch); err != nil {
-					return err
-				}
-				outSuccess(cmd.OutOrStdout(), "Created branch %s from %s", branch, parentBranch)
-			} else {
-				outReuse(cmd.OutOrStdout(), "Reusing branch %s", branch)
-			}
-
-			worktree := target.Worktree
-			if strings.TrimSpace(worktree) == "" {
-				worktree = filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(branch))
-			}
-
-			if _, err := os.Stat(worktree); os.IsNotExist(err) {
-				if err := os.MkdirAll(filepath.Dir(worktree), 0o755); err != nil {
-					return err
-				}
-				if err := gitx.AddWorktree(repo.rootPath, worktree, branch); err != nil {
-					return err
-				}
-				outSuccess(cmd.OutOrStdout(), "Created worktree: %s", worktree)
-			} else if err != nil {
-				return err
-			} else {
-				outReuse(cmd.OutOrStdout(), "Reusing worktree: %s", worktree)
-			}
-
-			target.Branch = branch
-			target.Worktree = worktree
-			target.Parent = parentBranch
-			stack.CurrentStage = target.ID
-
-			if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
-				return err
-			}
-
-			outCurrent(cmd.OutOrStdout(), "Current stage: %s", target.ID)
-			if noOpen {
-				return nil
-			}
-
-			return agent.StartOpenCodeWithArgs(worktree, "--prompt", stageStartPrompt(target))
+			return startStageAtIndex(cmd, repo, config, stacksFile, stack, nextIndex, true, !noOpen)
 		},
 	}
 
@@ -309,6 +313,109 @@ func requireCurrentStackWithPlan(config *state.Config, stacksFile *state.Stacks)
 	}
 
 	return stack, nil
+}
+
+func startStageAtIndex(cmd *cobra.Command, repo *repoContext, config *state.Config, stacksFile *state.Stacks, stack *state.Stack, stageIndex int, withPrompt bool, openAgent bool) error {
+	if stack == nil {
+		return fmt.Errorf("stack is required")
+	}
+	if stageIndex < 0 || stageIndex >= len(stack.Stages) {
+		return fmt.Errorf("stage index %d out of range", stageIndex)
+	}
+
+	target := &stack.Stages[stageIndex]
+	branch := strings.TrimSpace(target.Branch)
+	if branch == "" {
+		branch = stageBranchName(stack.Name, stageIndex, target.ID)
+	}
+
+	parentBranch, err := parentBranchForStage(repo.rootPath, stack, stageIndex)
+	if err != nil {
+		return err
+	}
+
+	if !gitx.BranchExists(repo.rootPath, branch) {
+		if err := gitx.CreateBranch(repo.rootPath, branch, parentBranch); err != nil {
+			return err
+		}
+		outSuccess(cmd.OutOrStdout(), "Created branch %s from %s", branch, parentBranch)
+	} else {
+		outReuse(cmd.OutOrStdout(), "Reusing branch %s", branch)
+	}
+
+	worktree := strings.TrimSpace(target.Worktree)
+	if worktree == "" {
+		worktree = filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(branch))
+	}
+
+	if _, err := os.Stat(worktree); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(worktree), 0o755); err != nil {
+			return err
+		}
+		if err := gitx.AddWorktree(repo.rootPath, worktree, branch); err != nil {
+			return err
+		}
+		outSuccess(cmd.OutOrStdout(), "Created worktree: %s", worktree)
+	} else if err != nil {
+		return err
+	} else {
+		outReuse(cmd.OutOrStdout(), "Reusing worktree: %s", worktree)
+	}
+
+	target.Branch = branch
+	target.Worktree = worktree
+	target.Parent = parentBranch
+	stack.CurrentStage = target.ID
+
+	if config != nil {
+		config.CurrentStack = stack.Name
+		if err := state.SaveConfig(repo.rootPath, config); err != nil {
+			return err
+		}
+	}
+
+	if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
+		return err
+	}
+
+	outCurrent(cmd.OutOrStdout(), "Current stack: %s", stack.Name)
+	outCurrent(cmd.OutOrStdout(), "Current stage: %s", target.ID)
+	if !openAgent {
+		return nil
+	}
+
+	if withPrompt {
+		return agent.StartOpenCodeWithArgs(worktree, "--prompt", stageStartPrompt(target))
+	}
+
+	return agent.StartOpenCode(worktree)
+}
+
+func promptSelectIndex(label string, options []string) (int, error) {
+	if len(options) == 0 {
+		return 0, fmt.Errorf("no options available")
+	}
+
+	selectPrompt := promptui.Select{
+		Label: label,
+		Items: options,
+		Size:  10,
+	}
+
+	idx, _, err := selectPrompt.Run()
+	if err != nil {
+		return 0, fmt.Errorf("selection cancelled: %w", err)
+	}
+
+	return idx, nil
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+
+	return "s"
 }
 
 func nextStageIndex(stack *state.Stack) (int, error) {
