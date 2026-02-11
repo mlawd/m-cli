@@ -22,6 +22,7 @@ func newStackRootCmd() *cobra.Command {
 	cmd.AddCommand(
 		newStackNewCmd(),
 		newStackAttachPlanCmd(),
+		newStackRemoveCmd(),
 		newStackRebaseCmd(),
 		newStackListCmd(),
 		newStackSelectCmd(),
@@ -29,6 +30,77 @@ func newStackRootCmd() *cobra.Command {
 	)
 
 	return cmd
+}
+
+func newStackRemoveCmd() *cobra.Command {
+	var force bool
+	var deleteWorktrees bool
+
+	cmd := &cobra.Command{
+		Use:   "remove <stack-name>",
+		Short: "Remove a stack from local m state",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			stackName := strings.TrimSpace(args[0])
+
+			repo, err := discoverRepoContext()
+			if err != nil {
+				return err
+			}
+
+			config, stacksFile, err := loadState(repo)
+			if err != nil {
+				return err
+			}
+
+			stack, stackIdx := state.FindStack(stacksFile, stackName)
+			if stack == nil {
+				return fmt.Errorf("stack %q not found", stackName)
+			}
+
+			if !force && stackHasStartedStages(stack) {
+				return fmt.Errorf("stack %q has started stages; rerun with --force", stack.Name)
+			}
+
+			if deleteWorktrees {
+				stackWorktreesDir := filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(strings.Trim(stack.Name, "/")))
+				if err := os.RemoveAll(stackWorktreesDir); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed worktrees: %s\n", stackWorktreesDir)
+			}
+
+			stacksFile.Stacks = append(stacksFile.Stacks[:stackIdx], stacksFile.Stacks[stackIdx+1:]...)
+			if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
+				return err
+			}
+
+			if config.CurrentStack == stack.Name {
+				config.CurrentStack = ""
+				if err := state.SaveConfig(repo.rootPath, config); err != nil {
+					return err
+				}
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed stack %q\n", stack.Name)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Allow removing stack with started stages")
+	cmd.Flags().BoolVar(&deleteWorktrees, "delete-worktrees", false, "Also remove .m/worktrees for this stack")
+
+	return cmd
+}
+
+func stackHasStartedStages(stack *state.Stack) bool {
+	for _, stage := range stack.Stages {
+		if strings.TrimSpace(stage.Branch) != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func newStackRebaseCmd() *cobra.Command {

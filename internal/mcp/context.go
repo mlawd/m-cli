@@ -126,6 +126,9 @@ func commandReference() string {
 - m stack list
   List stacks and indicate which one is current.
 
+- m stack remove <stack-name> [--force] [--delete-worktrees]
+  Remove a stack from local m state.
+
 - m stack select <stack-name>
   Set the active stack context.
 

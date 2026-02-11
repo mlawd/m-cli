@@ -15,6 +15,7 @@ go run ./cmd/m version
 go run ./cmd/m init
 go run ./cmd/m stack new my-stack
 go run ./cmd/m stack attach-plan ./plan.yaml
+go run ./cmd/m stack remove my-stack
 go run ./cmd/m stack list
 go run ./cmd/m stack select my-stack
 go run ./cmd/m stack current
@@ -45,6 +46,7 @@ make run ARGS="stage list"
 - `m stack new <stack-name> [--plan-file <plan.yaml>]` creates a stack and auto-selects it
 - `m stack attach-plan <plan.yaml>` attaches a plan to the current stack (fails if one is already attached)
 - `m stack list` lists stacks and marks the selected one
+- `m stack remove <stack-name> [--force] [--delete-worktrees]` removes a stack from local state
 - `m stack select <stack-name>` sets current stack context
 - `m stack current` prints the current stack name
 - `m stage list` lists stages for the current stack (requires attached plan)
