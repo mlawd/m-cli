@@ -65,6 +65,65 @@ make build
 ./bin/m help
 ```
 
+## MCP server (for agents)
+
+Run an MCP stdio server so AI agents can read `m` workflow docs and live stack/stage context:
+
+```bash
+go run ./cmd/m mcp serve
+```
+
+The server exposes:
+
+- resources:
+  - `m://plan/format` (plan YAML format + validation rules)
+  - `m://guide/workflow` (planning guidance)
+  - `m://commands/reference` (command quick reference)
+  - `m://state/context` (JSON snapshot of current repo stack/stage context)
+- tools:
+  - `get_m_context`
+  - `suggest_m_plan`
+- prompt:
+  - `plan_with_m`
+
+Use your MCP client config to launch `m mcp serve` as a stdio server.
+
+### Configure OpenCode
+
+Add an `opencode.json` file in this repo (or update your global config at `~/.config/opencode/opencode.json`) with a local MCP entry:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "m_cli": {
+      "type": "local",
+      "enabled": true,
+      "command": ["m", "mcp", "serve"]
+    }
+  },
+  "instructions": ["AGENTS.md"]
+}
+```
+
+If you are developing `m` from source and have not run `make install`, use:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "m_cli": {
+      "type": "local",
+      "enabled": true,
+      "command": ["go", "run", "./cmd/m", "mcp", "serve"]
+    }
+  },
+  "instructions": ["AGENTS.md"]
+}
+```
+
+After saving config, restart OpenCode. The MCP tools/resources from `m` will be available to agents.
+
 ## Install globally
 
 ```bash

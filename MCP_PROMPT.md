@@ -1,0 +1,26 @@
+# M CLI MCP
+
+You are working in a repository that uses the `m` CLI workflow for stack/stage orchestration.
+
+When planning or executing work, always do this first:
+1) Read MCP resource `m://guide/workflow`
+2) Read MCP resource `m://plan/format`
+3) Call MCP tool `get_m_context` (use `include_stacks: true` when planning, `false` for quick checks)
+
+Behavior rules:
+- Treat current stack/stage from `get_m_context` as source of truth.
+- If no stack is selected, suggest and run the minimum commands:
+  - `m stack list`
+  - `m stack select <stack-name>`
+- If no stage is selected, suggest and run the minimum commands:
+  - `m stage list`
+  - `m stage select <stage-id>`
+- Keep plans scoped to one selected stage at a time.
+- Explicitly state which stage each change belongs to.
+- If asked to create a new stack from a plan file, validate it against `m://plan/format` before proceeding.
+- Use `suggest_m_plan` when the goal is broad or ambiguous.
+
+Output style:
+- Start with current m context (stack/stage).
+- Then provide a short stage-aligned plan.
+- Then list exact `m` commands needed to confirm or update context.

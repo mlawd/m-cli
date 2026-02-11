@@ -19,6 +19,7 @@ func NewRootCmd(version string) *cobra.Command {
 		newInitCmd(),
 		newStackRootCmd(),
 		newStageRootCmd(),
+		newMCPRootCmd(version),
 		newVersionCmd(version),
 	)
 
