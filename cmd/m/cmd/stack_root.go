@@ -232,12 +232,14 @@ func newStackPushCmd() *cobra.Command {
 			}
 
 			for _, stageIndex := range startedStageIndexes {
-				if err := pushStageAndEnsurePROpts(cmd, repo.rootPath, stack, stageIndex, true); err != nil {
+				stage := stack.Stages[stageIndex]
+				outAction(cmd.OutOrStdout(), "%s PR", stage.ID)
+				if err := pushStageAndEnsurePROpts(cmd, repo.rootPath, stack, stageIndex, true, "  "); err != nil {
 					return err
 				}
 			}
 
-			if err := syncStackPRDescriptions(cmd, repo.rootPath, stack, startedStageIndexes); err != nil {
+			if err := syncStackPRDescriptions(cmd, repo.rootPath, stack, startedStageIndexes, "  "); err != nil {
 				return err
 			}
 

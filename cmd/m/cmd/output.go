@@ -45,7 +45,14 @@ func outLink(w io.Writer, format string, args ...any) {
 }
 
 func outStyled(w io.Writer, color, icon, format string, args ...any) {
+	outStyledWithPrefix(w, color, icon, "", format, args...)
+}
+
+func outStyledWithPrefix(w io.Writer, color, icon, prefix, format string, args ...any) {
 	line := fmt.Sprintf("%s %s", icon, fmt.Sprintf(format, args...))
+	if prefix != "" {
+		line = prefix + line
+	}
 	if supportsColor(w) {
 		line = color + line + ansiReset
 	}

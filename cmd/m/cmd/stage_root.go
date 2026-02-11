@@ -84,7 +84,7 @@ func newStagePushCmd() *cobra.Command {
 			}
 
 			updatedIndexes := append(stageIndexes, stageIndex)
-			if err := syncStackPRDescriptions(cmd, repo.rootPath, stack, updatedIndexes); err != nil {
+			if err := syncStackPRDescriptions(cmd, repo.rootPath, stack, updatedIndexes, ""); err != nil {
 				return err
 			}
 
@@ -395,10 +395,10 @@ func stageIndexesToPush(stack *state.Stack, currentStageIndex int, remoteBranchE
 }
 
 func pushStageAndEnsurePR(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndex int) error {
-	return pushStageAndEnsurePROpts(cmd, repoRoot, stack, stageIndex, false)
+	return pushStageAndEnsurePROpts(cmd, repoRoot, stack, stageIndex, false, "")
 }
 
-func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndex int, forceWithLease bool) error {
+func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndex int, forceWithLease bool, linePrefix string) error {
 	stage := &stack.Stages[stageIndex]
 	branch := stageBranchFor(stack, stageIndex)
 	if !gitx.BranchExists(repoRoot, branch) {
@@ -414,9 +414,9 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		return err
 	}
 	if forceWithLease {
-		outAction(cmd.OutOrStdout(), "Force-pushed branch %s (--force-with-lease)", branch)
+		outStyledWithPrefix(cmd.OutOrStdout(), ansiBlue, "🚀", linePrefix, "Force-pushed branch %s (--force-with-lease)", branch)
 	} else {
-		outAction(cmd.OutOrStdout(), "Pushed branch %s", branch)
+		outStyledWithPrefix(cmd.OutOrStdout(), ansiBlue, "🚀", linePrefix, "Pushed branch %s", branch)
 	}
 
 	prURL, err := findOpenPRURL(repoRoot, branch)
@@ -433,7 +433,7 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		if _, err := gitx.Run(repoRoot, "push", "-u", "origin", baseBranch); err != nil {
 			return err
 		}
-		outWarn(cmd.OutOrStdout(), "Base branch was missing remotely; pushed %s", baseBranch)
+		outStyledWithPrefix(cmd.OutOrStdout(), ansiYellow, "⚠️", linePrefix, "Base branch was missing remotely; pushed %s", baseBranch)
 	}
 
 	stackPRURLs, err := collectStackOpenPRURLs(repoRoot, stack)
@@ -451,8 +451,8 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		if _, err := runGH(repoRoot, "pr", "edit", prURL, "--body", body); err != nil {
 			return err
 		}
-		outLink(cmd.OutOrStdout(), "Found existing PR for %s: %s", stage.ID, prURL)
-		outSuccess(cmd.OutOrStdout(), "Updated PR description for %s: %s", stage.ID, prURL)
+		outStyledWithPrefix(cmd.OutOrStdout(), ansiCyan, "🔗", linePrefix, "Found existing PR for %s: %s", stage.ID, prURL)
+		outStyledWithPrefix(cmd.OutOrStdout(), ansiGreen, "✅", linePrefix, "Updated PR description for %s: %s", stage.ID, prURL)
 		return nil
 	}
 
@@ -468,7 +468,7 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 		return fmt.Errorf("failed to determine PR URL after creation")
 	}
 
-	outSuccess(cmd.OutOrStdout(), "Created PR for %s: %s", stage.ID, prURL)
+	outStyledWithPrefix(cmd.OutOrStdout(), ansiGreen, "✅", linePrefix, "Created PR for %s: %s", stage.ID, prURL)
 	return nil
 }
 
@@ -550,7 +550,7 @@ func stackPRListLines(stack *state.Stack, stageIndex int, stackPRURLs map[int]st
 	return lines
 }
 
-func syncStackPRDescriptions(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndexes []int) error {
+func syncStackPRDescriptions(cmd *cobra.Command, repoRoot string, stack *state.Stack, stageIndexes []int, linePrefix string) error {
 	if len(stageIndexes) == 0 {
 		return nil
 	}
@@ -578,7 +578,7 @@ func syncStackPRDescriptions(cmd *cobra.Command, repoRoot string, stack *state.S
 		if _, err := runGH(repoRoot, "pr", "edit", prURL, "--body", body); err != nil {
 			return err
 		}
-		outSuccess(cmd.OutOrStdout(), "Synced PR description for %s: %s", stack.Stages[stageIndex].ID, prURL)
+		outStyledWithPrefix(cmd.OutOrStdout(), ansiGreen, "✅", linePrefix, "Synced PR description for %s: %s", stack.Stages[stageIndex].ID, prURL)
 		updated[stageIndex] = struct{}{}
 	}
 
