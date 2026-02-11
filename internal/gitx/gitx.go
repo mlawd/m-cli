@@ -14,6 +14,14 @@ type RepoInfo struct {
 	DefaultBranch string
 }
 
+func SharedRoot(topLevel, commonDir string) string {
+	if filepath.Base(filepath.Clean(commonDir)) == ".git" {
+		return filepath.Dir(commonDir)
+	}
+
+	return topLevel
+}
+
 func Run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	if dir != "" {

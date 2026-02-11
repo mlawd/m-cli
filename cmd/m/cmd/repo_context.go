@@ -18,7 +18,7 @@ func discoverRepoContext() (*repoContext, error) {
 		return nil, fmt.Errorf("discover repo: %w", err)
 	}
 
-	return &repoContext{rootPath: repo.TopLevel, common: repo.CommonDir}, nil
+	return &repoContext{rootPath: gitx.SharedRoot(repo.TopLevel, repo.CommonDir), common: repo.CommonDir}, nil
 }
 
 func loadState(ctx *repoContext) (*state.Config, *state.Stacks, error) {

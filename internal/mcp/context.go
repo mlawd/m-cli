@@ -32,21 +32,21 @@ func BuildContextSnapshot(cwd string, includeStacks bool) (*ContextSnapshot, err
 	}
 
 	snapshot := &ContextSnapshot{
-		RepoRoot:  repo.TopLevel,
+		RepoRoot:  gitx.SharedRoot(repo.TopLevel, repo.CommonDir),
 		IsGitRepo: true,
 	}
 
-	config, err := state.LoadConfig(repo.TopLevel)
+	config, err := state.LoadConfig(snapshot.RepoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	stacksFile, err := state.LoadStacks(repo.TopLevel)
+	stacksFile, err := state.LoadStacks(snapshot.RepoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("load stacks: %w", err)
 	}
 
-	if _, err := os.Stat(state.Dir(repo.TopLevel)); err == nil {
+	if _, err := os.Stat(state.Dir(snapshot.RepoRoot)); err == nil {
 		snapshot.Initialized = true
 	}
 	snapshot.CurrentStack = strings.TrimSpace(config.CurrentStack)
