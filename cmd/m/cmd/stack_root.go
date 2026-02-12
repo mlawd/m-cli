@@ -72,19 +72,20 @@ func newStackRemoveCmd() *cobra.Command {
 				outStyled(cmd.OutOrStdout(), ansiBlue, "🧹", "Removed worktrees: %s", stackWorktreesDir)
 			}
 
-			stacksFile.Stacks = append(stacksFile.Stacks[:stackIdx], stacksFile.Stacks[stackIdx+1:]...)
+			var removedStackName string
+			stacksFile.Stacks, removedStackName = removeStackByIndex(stacksFile.Stacks, stackIdx)
 			if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
 				return err
 			}
 
-			if config.CurrentStack == stack.Name {
+			if config.CurrentStack == removedStackName {
 				config.CurrentStack = ""
 				if err := state.SaveConfig(repo.rootPath, config); err != nil {
 					return err
 				}
 			}
 
-			outSuccess(cmd.OutOrStdout(), "Removed stack %q", stack.Name)
+			outSuccess(cmd.OutOrStdout(), "Removed stack %q", removedStackName)
 			return nil
 		},
 	}
@@ -93,6 +94,11 @@ func newStackRemoveCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&deleteWorktrees, "delete-worktrees", false, "Also remove .m/worktrees for this stack")
 
 	return cmd
+}
+
+func removeStackByIndex(stacks []state.Stack, index int) ([]state.Stack, string) {
+	removedName := stacks[index].Name
+	return append(stacks[:index], stacks[index+1:]...), removedName
 }
 
 func stackHasStartedStages(stack *state.Stack) bool {

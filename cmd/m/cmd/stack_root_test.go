@@ -102,3 +102,21 @@ func TestStartedStageIndexesNilStack(t *testing.T) {
 		t.Fatal("expected error for nil stack")
 	}
 }
+
+func TestRemoveStackByIndexReturnsRemovedName(t *testing.T) {
+	stacks := []state.Stack{
+		{Name: "first"},
+		{Name: "second"},
+	}
+
+	updated, removedName := removeStackByIndex(stacks, 0)
+	if removedName != "first" {
+		t.Fatalf("removedName = %q, want %q", removedName, "first")
+	}
+	if len(updated) != 1 {
+		t.Fatalf("len(updated) = %d, want %d", len(updated), 1)
+	}
+	if updated[0].Name != "second" {
+		t.Fatalf("updated[0].Name = %q, want %q", updated[0].Name, "second")
+	}
+}
