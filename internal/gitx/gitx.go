@@ -3,6 +3,8 @@ package gitx
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -129,10 +131,78 @@ func CreateBranch(dir, branch, from string) error {
 
 func AddWorktree(dir, path, branch string) error {
 	_, err := Run(dir, "worktree", "add", path, branch)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return copyRootDotEnvFiles(dir, path)
 }
 
 func AddWorktreeFromRemote(dir, path, localBranch, remoteBranch string) error {
 	_, err := Run(dir, "worktree", "add", "-b", localBranch, path, remoteBranch)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return copyRootDotEnvFiles(dir, path)
+}
+
+func copyRootDotEnvFiles(rootDir, worktreeDir string) error {
+	entries, err := os.ReadDir(rootDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if !isDotEnvFile(name) || entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
+		srcPath := filepath.Join(rootDir, name)
+		dstPath := filepath.Join(worktreeDir, name)
+		if _, err := os.Stat(dstPath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+
+		if err := copyFile(srcPath, dstPath, info.Mode().Perm()); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func isDotEnvFile(name string) bool {
+	return name == ".env" || strings.HasPrefix(name, ".env.")
+}
+
+func copyFile(srcPath, dstPath string, mode os.FileMode) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		return err
+	}
+
+	return dst.Close()
 }
