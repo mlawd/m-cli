@@ -1,5 +1,7 @@
 # m
 
+<!-- README TEST MARKER: Stage 1 -->
+
 `m` is a local orchestration CLI for single-stack, multi-branch workflows.
 
 ## Prerequisites
