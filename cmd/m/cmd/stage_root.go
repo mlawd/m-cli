@@ -467,6 +467,9 @@ func stageStartPrompt(stage *state.Stage) string {
 	if title := strings.TrimSpace(stage.Title); title != "" {
 		prompt = fmt.Sprintf("%s: %s", prompt, title)
 	}
+	if context := strings.TrimSpace(stage.Context); context != "" {
+		prompt = fmt.Sprintf("%s\n\nStage context:\n%s", prompt, context)
+	}
 
 	return prompt
 }
@@ -595,7 +598,7 @@ func collectStackOpenPRURLs(repoRoot string, stack *state.Stack) (map[int]string
 
 func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string) string {
 	stage := stack.Stages[stageIndex]
-	hasDetails := strings.TrimSpace(stage.Outcome) != "" || len(stage.Implementation) > 0 || len(stage.Validation) > 0 || len(stage.Risks) > 0
+	hasDetails := strings.TrimSpace(stage.Outcome) != "" || len(stage.Implementation) > 0 || len(stage.Validation) > 0 || len(stage.Risks) > 0 || strings.TrimSpace(stage.Context) != ""
 
 	var body strings.Builder
 	body.WriteString(fmt.Sprintf("Stage: %s", stage.ID))
@@ -622,6 +625,11 @@ func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string)
 				body.WriteString("\n")
 			}
 		}
+	}
+
+	if context := strings.TrimSpace(stage.Context); context != "" {
+		body.WriteString("\n\n## Context\n")
+		body.WriteString(context)
 	}
 
 	if !hasDetails {

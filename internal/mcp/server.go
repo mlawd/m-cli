@@ -168,23 +168,21 @@ func registerTools(srv *mcpserver.MCPServer) {
 				return nil, err
 			}
 
-			plan := map[string][]string{
-				"outcome": {
-					"Define the stage outcome in one concrete sentence describing what done looks like.",
-					"Bound scope to the selected stage only and list excluded work explicitly.",
+			guidance := map[string][]string{
+				"format": {
+					"Prefer plan version 3 for new plans.",
+					"Keep YAML frontmatter focused on stage identity and ordering.",
+					"Store stage-specific prompt-like detail under markdown headings: ## Stage: <stage-id>.",
 				},
-				"implementation": {
-					"List the exact code paths and components that need updates.",
-					"Break execution into ordered, concrete steps with clear handoff points.",
-					"Call out data model, API, and UI changes separately when applicable.",
+				"stage_context": {
+					"Describe defaults and assumptions that must remain true.",
+					"Describe how this stage should interact with existing systems and adjacent stages.",
+					"Call out invariants, compatibility constraints, and explicit non-goals.",
+					"Include edge-case expectations and rollback/safety notes where relevant.",
 				},
-				"validation": {
-					"List specific test and verification commands with expected outcomes.",
-					"Include one end-to-end smoke check for the stage behavior.",
-				},
-				"risks": {
-					"Identify likely implementation risks for this stage.",
-					"Pair every risk with a concrete mitigation action.",
+				"execution": {
+					"For each stage, keep a crisp outcome plus concrete implementation and validation bullets.",
+					"Make stage boundaries explicit so reviewers can reason about ordering and risk.",
 				},
 			}
 
@@ -198,23 +196,36 @@ func registerTools(srv *mcpserver.MCPServer) {
 
 			var textBuilder strings.Builder
 			textBuilder.WriteString(headline)
-			textBuilder.WriteString("\n\nSuggested stage implementation plan:\n")
-			textBuilder.WriteString("\nOutcome:\n")
-			for _, item := range plan["outcome"] {
+			textBuilder.WriteString("\n\nSuggested planning guidance:\n")
+			textBuilder.WriteString("\nFormat:\n")
+			for _, item := range guidance["format"] {
 				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
 			}
-			textBuilder.WriteString("\nImplementation:\n")
-			for _, item := range plan["implementation"] {
+			textBuilder.WriteString("\nStage context quality:\n")
+			for _, item := range guidance["stage_context"] {
 				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
 			}
-			textBuilder.WriteString("\nValidation:\n")
-			for _, item := range plan["validation"] {
+			textBuilder.WriteString("\nExecution quality:\n")
+			for _, item := range guidance["execution"] {
 				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
 			}
-			textBuilder.WriteString("\nRisks and mitigations:\n")
-			for _, item := range plan["risks"] {
-				textBuilder.WriteString(fmt.Sprintf("- %s\n", item))
-			}
+
+			textBuilder.WriteString("\nVersion 3 plan skeleton:\n")
+			textBuilder.WriteString("```markdown\n")
+			textBuilder.WriteString("---\n")
+			textBuilder.WriteString("version: 3\n")
+			textBuilder.WriteString("title: <goal title>\n")
+			textBuilder.WriteString("stages:\n")
+			textBuilder.WriteString("  - id: stage-1\n")
+			textBuilder.WriteString("    title: <stage title>\n")
+			textBuilder.WriteString("  - id: stage-2\n")
+			textBuilder.WriteString("    title: <stage title>\n")
+			textBuilder.WriteString("---\n\n")
+			textBuilder.WriteString("## Stage: stage-1\n")
+			textBuilder.WriteString("<freeform stage context: defaults, interactions, assumptions, constraints>\n\n")
+			textBuilder.WriteString("## Stage: stage-2\n")
+			textBuilder.WriteString("<freeform stage context: defaults, interactions, assumptions, constraints>\n")
+			textBuilder.WriteString("```\n")
 
 			textBuilder.WriteString("\nContext checks:\n")
 			textBuilder.WriteString("1. Read `m://state/context` or call `get_m_context`.\n")
@@ -223,8 +234,17 @@ func registerTools(srv *mcpserver.MCPServer) {
 			textBuilder.WriteString("4. Before handoff, run `m stage current` and summarize stage-scoped changes.\n")
 
 			structured := map[string]interface{}{
-				"goal": goal,
-				"plan": plan,
+				"goal":                   goal,
+				"guidance":               guidance,
+				"preferred_plan_version": 3,
+				"plan_skeleton": map[string]interface{}{
+					"frontmatter": map[string]interface{}{
+						"version": 3,
+						"title":   "<goal title>",
+						"stages":  []map[string]string{{"id": "stage-1", "title": "<stage title>"}},
+					},
+					"markdown_sections": []string{"## Stage: stage-1", "<freeform stage context>"},
+				},
 				"context_checks": []string{
 					"Read `m://state/context` or call `get_m_context`.",
 					"If no stack is selected, run `m stack list` then `m stack select <stack-name>`.",

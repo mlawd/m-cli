@@ -153,6 +153,36 @@ func TestStagePRBodyUsesNotCreatedPlaceholder(t *testing.T) {
 	}
 }
 
+func TestStagePRBodyIncludesContext(t *testing.T) {
+	stack := &state.Stack{
+		Name: "test-stack",
+		Stages: []state.Stage{
+			{ID: "stage-1", Context: "Keep existing defaults for tax calculation and honor existing flags."},
+		},
+	}
+
+	body := stagePRBody(stack, 0, map[int]string{})
+	if !strings.Contains(body, "## Context") {
+		t.Fatalf("expected context section; got:\n%s", body)
+	}
+	if !strings.Contains(body, "tax calculation") {
+		t.Fatalf("expected context text; got:\n%s", body)
+	}
+}
+
+func TestStageStartPromptIncludesContext(t *testing.T) {
+	stage := &state.Stage{
+		ID:      "foundation",
+		Title:   "Foundation",
+		Context: "Preserve current default values and request compatibility.",
+	}
+
+	prompt := stageStartPrompt(stage)
+	if !strings.Contains(prompt, "Stage context:") {
+		t.Fatalf("expected stage context in prompt; got: %s", prompt)
+	}
+}
+
 func TestPluralSuffix(t *testing.T) {
 	if got := pluralSuffix(1); got != "" {
 		t.Fatalf("pluralSuffix(1) = %q, want empty string", got)

@@ -105,9 +105,10 @@ func planningGuide() string {
    - m stage push
 
 9) While planning agent work:
-   - Prefer one stage-focused goal at a time.
-   - Keep changes scoped to the selected stage.
-   - If no stage is selected, pick the earliest incomplete stage.
+    - Prefer one stage-focused goal at a time.
+    - Keep changes scoped to the selected stage.
+    - For new plans, prefer version 3 and capture prompt-like stage context under "## Stage: <id>".
+    - If no stage is selected, pick the earliest incomplete stage.
 
 10) Useful guardrails for agents:
    - Read current stack/stage before proposing edits.
@@ -175,7 +176,7 @@ func planFormatGuide() string {
 Required file structure:
 - File must start with YAML frontmatter delimited by ---
 - Frontmatter must include:
-  - version: must be 2
+  - version: must be 2 or 3
   - stages: non-empty list
 - Markdown body after frontmatter is optional
 
@@ -186,53 +187,51 @@ Each stage entry requires:
 - id: unique, kebab-case letters/numbers only
       regex: ^[a-z0-9]+(?:-[a-z0-9]+)*$
 - title: non-empty string
-- outcome: non-empty string describing done state
-- implementation: non-empty list of non-empty strings
-- validation: non-empty list of non-empty strings
-- risks: non-empty list of objects with:
-  - risk: non-empty string
-  - mitigation: non-empty string
+
+Version-specific requirements:
+
+- version: 2 (legacy detailed schema)
+  - outcome: non-empty string describing done state
+  - implementation: non-empty list of non-empty strings
+  - validation: non-empty list of non-empty strings
+  - risks: non-empty list of objects with:
+    - risk: non-empty string
+    - mitigation: non-empty string
+
+- version: 3 (hybrid schema)
+  - Frontmatter keeps stage identity and ordering.
+  - Markdown body must include a section for each stage using:
+      ## Stage: <stage-id>
+  - The content under each stage heading is treated as freeform stage context
+    (prompt-like details such as defaults, interactions, assumptions, constraints).
+  - Every declared stage must have a non-empty stage context section.
 
 Validation rules enforced by m:
-- plan version must be exactly 2
+- plan version must be 2 or 3
 - at least one stage is required
 - stage ids must match the regex above
 - stage ids must be unique
-- each stage must include all required fields
+- each stage must include all required fields for its version
+- for version 3, markdown stage sections must map to declared stage ids
 
-Example:
+Example (version 3):
 
 ---
-version: 2
-title: Example rollout
+version: 3
+title: Checkout rollout
 stages:
   - id: foundation
     title: Foundation setup
-    outcome: Core architecture and interfaces are in place.
-    implementation:
-      - Add initial domain models and interfaces.
-      - Wire baseline service layer.
-    validation:
-      - go test ./...
-      - verify stack builds locally
-    risks:
-      - risk: Scope creep during setup
-        mitigation: Keep a narrow interface-first slice
   - id: api-wiring
     title: Wire API endpoints
-    outcome: Public endpoints are connected to services.
-    implementation:
-      - Add handlers and routing.
-      - Connect handlers to service layer.
-    validation:
-      - go test ./...
-      - smoke test API endpoints
-    risks:
-      - risk: Contract mismatch between handler and service
-        mitigation: Add request/response fixtures and tests
 ---
 
-## Notes
-Optional narrative, links, and context.
+## Stage: foundation
+Preserve existing defaults from checkout settings and keep the current
+pricing fallback behavior. Do not alter API contracts in this stage.
+
+## Stage: api-wiring
+Wire handlers through the foundation interfaces. Reuse existing request
+validation semantics and keep response shapes backward compatible.
 `)
 }

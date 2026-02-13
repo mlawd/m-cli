@@ -24,6 +24,7 @@ type FileStage struct {
 	Implementation []string   `yaml:"implementation"`
 	Validation     []string   `yaml:"validation"`
 	Risks          []FileRisk `yaml:"risks"`
+	Context        string     `yaml:"-"`
 }
 
 type FileRisk struct {
@@ -37,7 +38,7 @@ func ParseFile(path string) (*File, error) {
 		return nil, err
 	}
 
-	frontmatter, err := extractFrontmatter(string(data))
+	frontmatter, body, err := extractFrontmatterAndBody(string(data))
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +46,28 @@ func ParseFile(path string) (*File, error) {
 	var parsed File
 	if err := yaml.Unmarshal([]byte(frontmatter), &parsed); err != nil {
 		return nil, fmt.Errorf("parse plan frontmatter: %w", err)
+	}
+
+	if parsed.Version == 3 {
+		contexts, err := extractStageContexts(body)
+		if err != nil {
+			return nil, err
+		}
+
+		knownStages := make(map[string]struct{}, len(parsed.Stages))
+		for i := range parsed.Stages {
+			stageID := strings.TrimSpace(parsed.Stages[i].ID)
+			knownStages[stageID] = struct{}{}
+			if context, ok := contexts[stageID]; ok {
+				parsed.Stages[i].Context = context
+			}
+		}
+
+		for stageID := range contexts {
+			if _, ok := knownStages[stageID]; !ok {
+				return nil, fmt.Errorf("stage context section references unknown stage %q", stageID)
+			}
+		}
 	}
 
 	if err := Validate(&parsed); err != nil {
@@ -58,8 +81,8 @@ func Validate(p *File) error {
 	if p == nil {
 		return fmt.Errorf("plan is empty")
 	}
-	if p.Version != 2 {
-		return fmt.Errorf("plan version must be 2")
+	if p.Version != 2 && p.Version != 3 {
+		return fmt.Errorf("plan version must be 2 or 3")
 	}
 	if len(p.Stages) == 0 {
 		return fmt.Errorf("plan must include at least one stage")
@@ -77,26 +100,34 @@ func Validate(p *File) error {
 		if strings.TrimSpace(stage.Title) == "" {
 			return fmt.Errorf("stage %q is missing title", stageID)
 		}
-		if strings.TrimSpace(stage.Outcome) == "" {
-			return fmt.Errorf("stage %q is missing outcome", stageID)
-		}
-		if err := validateStringList(stage.Implementation); err != nil {
-			return fmt.Errorf("stage %q has invalid implementation list: %w", stageID, err)
-		}
-		if err := validateStringList(stage.Validation); err != nil {
-			return fmt.Errorf("stage %q has invalid validation list: %w", stageID, err)
-		}
-		if len(stage.Risks) == 0 {
-			return fmt.Errorf("stage %q must include at least one risk", stageID)
-		}
-		for idx, risk := range stage.Risks {
-			if strings.TrimSpace(risk.Risk) == "" {
-				return fmt.Errorf("stage %q risk %d is missing risk", stageID, idx+1)
+
+		if p.Version == 2 {
+			if strings.TrimSpace(stage.Outcome) == "" {
+				return fmt.Errorf("stage %q is missing outcome", stageID)
 			}
-			if strings.TrimSpace(risk.Mitigation) == "" {
-				return fmt.Errorf("stage %q risk %d is missing mitigation", stageID, idx+1)
+			if err := validateStringList(stage.Implementation); err != nil {
+				return fmt.Errorf("stage %q has invalid implementation list: %w", stageID, err)
+			}
+			if err := validateStringList(stage.Validation); err != nil {
+				return fmt.Errorf("stage %q has invalid validation list: %w", stageID, err)
+			}
+			if len(stage.Risks) == 0 {
+				return fmt.Errorf("stage %q must include at least one risk", stageID)
+			}
+			for idx, risk := range stage.Risks {
+				if strings.TrimSpace(risk.Risk) == "" {
+					return fmt.Errorf("stage %q risk %d is missing risk", stageID, idx+1)
+				}
+				if strings.TrimSpace(risk.Mitigation) == "" {
+					return fmt.Errorf("stage %q risk %d is missing mitigation", stageID, idx+1)
+				}
 			}
 		}
+
+		if p.Version == 3 && strings.TrimSpace(stage.Context) == "" {
+			return fmt.Errorf("stage %q is missing context section", stageID)
+		}
+
 		if _, exists := seen[stageID]; exists {
 			return fmt.Errorf("duplicate stage id %q", stageID)
 		}
@@ -106,10 +137,10 @@ func Validate(p *File) error {
 	return nil
 }
 
-func extractFrontmatter(raw string) (string, error) {
+func extractFrontmatterAndBody(raw string) (string, string, error) {
 	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
 	if !strings.HasPrefix(normalized, "---\n") {
-		return "", fmt.Errorf("plan file must start with YAML frontmatter delimited by ---")
+		return "", "", fmt.Errorf("plan file must start with YAML frontmatter delimited by ---")
 	}
 
 	remaining := normalized[len("---\n"):]
@@ -118,16 +149,54 @@ func extractFrontmatter(raw string) (string, error) {
 		if strings.HasSuffix(remaining, "\n---") {
 			idx = len(remaining) - len("\n---")
 		} else {
-			return "", fmt.Errorf("plan file is missing closing frontmatter delimiter ---")
+			return "", "", fmt.Errorf("plan file is missing closing frontmatter delimiter ---")
 		}
 	}
 
 	frontmatter := strings.TrimSpace(remaining[:idx])
 	if frontmatter == "" {
-		return "", fmt.Errorf("plan frontmatter is empty")
+		return "", "", fmt.Errorf("plan frontmatter is empty")
+	}
+	bodyStart := idx + len("\n---\n")
+	body := ""
+	if bodyStart <= len(remaining) {
+		body = strings.TrimSpace(remaining[bodyStart:])
 	}
 
-	return frontmatter, nil
+	return frontmatter, body, nil
+}
+
+func extractStageContexts(body string) (map[string]string, error) {
+	contexts := map[string]string{}
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return contexts, nil
+	}
+
+	headingPattern := regexp.MustCompile(`(?m)^##\s+Stage:\s*(.+?)\s*$`)
+	matches := headingPattern.FindAllStringSubmatchIndex(trimmed, -1)
+	if len(matches) == 0 {
+		return contexts, nil
+	}
+
+	for i, match := range matches {
+		stageID := strings.TrimSpace(trimmed[match[2]:match[3]])
+		if stageID == "" {
+			return nil, fmt.Errorf("stage context heading is missing stage id")
+		}
+		if _, exists := contexts[stageID]; exists {
+			return nil, fmt.Errorf("duplicate stage context section for %q", stageID)
+		}
+
+		contentStart := match[1]
+		contentEnd := len(trimmed)
+		if i+1 < len(matches) {
+			contentEnd = matches[i+1][0]
+		}
+		contexts[stageID] = strings.TrimSpace(trimmed[contentStart:contentEnd])
+	}
+
+	return contexts, nil
 }
 
 func validateStringList(items []string) error {

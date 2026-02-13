@@ -416,6 +416,7 @@ func parseStagesFromPlanFile(planFile string) (string, []state.Stage, error) {
 			Implementation: append([]string(nil), stage.Implementation...),
 			Validation:     append([]string(nil), stage.Validation...),
 			Risks:          risks,
+			Context:        stage.Context,
 		})
 	}
 

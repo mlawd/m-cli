@@ -36,6 +36,7 @@ type Stage struct {
 	Implementation []string    `json:"implementation,omitempty"`
 	Validation     []string    `json:"validation,omitempty"`
 	Risks          []StageRisk `json:"risks,omitempty"`
+	Context        string      `json:"context,omitempty"`
 	Branch         string      `json:"branch,omitempty"`
 	Worktree       string      `json:"worktree,omitempty"`
 	Parent         string      `json:"parent_branch,omitempty"`

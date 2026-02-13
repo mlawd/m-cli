@@ -77,39 +77,30 @@ m worktree open chore/docs-refresh --path ./worktrees/docs-refresh --no-open
 
 ### Plan file format
 
+`m` supports two plan versions:
+- `version: 2` (legacy detailed schema in frontmatter)
+- `version: 3` (hybrid schema with freeform stage context in markdown body)
+
+For `version: 3`, include `## Stage: <stage-id>` sections in markdown. These sections carry prompt-like context for each stage and are preserved into stage state.
+
 ```markdown
 ---
-version: 2
-title: Example rollout
+version: 3
+title: Checkout rollout
 stages:
   - id: foundation
     title: Foundation setup
-    outcome: Core architecture and interfaces are in place.
-    implementation:
-      - Add initial domain models and interfaces.
-      - Wire baseline service layer.
-    validation:
-      - go test ./...
-      - verify stack builds locally
-    risks:
-      - risk: Scope creep during setup
-        mitigation: Keep scope narrow and interface-first
   - id: api-wiring
     title: Wire API endpoints
-    outcome: Public endpoints are connected to services.
-    implementation:
-      - Add handlers and routing.
-      - Connect handlers to service layer.
-    validation:
-      - go test ./...
-      - smoke test API endpoints
-    risks:
-      - risk: Contract mismatch between handler and service
-        mitigation: Add request/response fixtures and tests
 ---
 
-## Notes
-Optional narrative context for humans.
+## Stage: foundation
+Preserve existing defaults from checkout settings and keep current pricing fallback behavior.
+Do not alter API contracts in this stage.
+
+## Stage: api-wiring
+Wire handlers through the foundation interfaces. Reuse existing request validation semantics
+and keep response shapes backward compatible.
 ```
 
 ## Build a binary

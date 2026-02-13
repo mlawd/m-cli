@@ -20,6 +20,7 @@ Behavior rules:
 - Keep plans scoped to one selected stage at a time.
 - Explicitly state which stage each change belongs to.
 - If asked to attach a plan file to the current stack, validate it against `m://plan/format` before proceeding.
+- Prefer plan version 3 for new plans so each stage can carry freeform context under `## Stage: <id>` markdown sections.
 - Use `suggest_m_plan` when the goal is broad or ambiguous.
 
 Output style:

@@ -120,3 +120,35 @@ func TestRemoveStackByIndexReturnsRemovedName(t *testing.T) {
 		t.Fatalf("updated[0].Name = %q, want %q", updated[0].Name, "second")
 	}
 }
+
+func TestParseStagesFromPlanFileV3Context(t *testing.T) {
+	tempDir := t.TempDir()
+	planPath := filepath.Join(tempDir, "plan.md")
+
+	content := `---
+version: 3
+title: Feature rollout
+stages:
+  - id: foundation
+    title: Foundation
+---
+
+## Stage: foundation
+Preserve existing default values and keep behavior compatible with legacy checkout.
+`
+
+	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+
+	_, stages, err := parseStagesFromPlanFile(planPath)
+	if err != nil {
+		t.Fatalf("parseStagesFromPlanFile returned error: %v", err)
+	}
+	if len(stages) != 1 {
+		t.Fatalf("len(stages) = %d, want 1", len(stages))
+	}
+	if got := strings.TrimSpace(stages[0].Context); got == "" {
+		t.Fatal("expected stage context to be populated")
+	}
+}
