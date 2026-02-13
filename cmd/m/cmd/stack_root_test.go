@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -151,4 +152,205 @@ Preserve existing default values and keep behavior compatible with legacy checko
 	if got := strings.TrimSpace(stages[0].Context); got == "" {
 		t.Fatal("expected stage context to be populated")
 	}
+}
+
+func TestPruneMergedStagesRemovesMergedAndAdvancesCurrent(t *testing.T) {
+	stack := &state.Stack{
+		Name:         "test-stack",
+		CurrentStage: "stage-2",
+		Stages: []state.Stage{
+			{ID: "stage-1", Branch: "test-stack/1/stage-1", Worktree: "/tmp/wt1"},
+			{ID: "stage-2", Branch: "test-stack/2/stage-2", Worktree: "/tmp/wt2"},
+			{ID: "stage-3", Branch: "test-stack/3/stage-3", Worktree: "/tmp/wt3"},
+		},
+	}
+
+	merged := map[string]bool{
+		"test-stack/2/stage-2": true,
+	}
+
+	cleaned := []string{}
+	pruned, mutated, err := pruneMergedStages(
+		stack,
+		func(branch string) (bool, error) {
+			return merged[branch], nil
+		},
+		func(stage state.Stage, branch string) error {
+			cleaned = append(cleaned, fmt.Sprintf("%s:%s", stage.ID, branch))
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("pruneMergedStages returned error: %v", err)
+	}
+	if !mutated {
+		t.Fatal("expected mutated=true")
+	}
+	if pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned)
+	}
+
+	if got := []string{stack.Stages[0].ID, stack.Stages[1].ID}; !reflect.DeepEqual(got, []string{"stage-1", "stage-3"}) {
+		t.Fatalf("remaining stage IDs = %v, want [stage-1 stage-3]", got)
+	}
+	if stack.CurrentStage != "stage-3" {
+		t.Fatalf("CurrentStage = %q, want %q", stack.CurrentStage, "stage-3")
+	}
+	if !reflect.DeepEqual(cleaned, []string{"stage-2:test-stack/2/stage-2"}) {
+		t.Fatalf("cleanup calls = %v, want one stage-2 call", cleaned)
+	}
+}
+
+func TestPruneMergedStagesNoMerged(t *testing.T) {
+	stack := &state.Stack{
+		Name:         "test-stack",
+		CurrentStage: "stage-1",
+		Stages: []state.Stage{
+			{ID: "stage-1", Branch: "test-stack/1/stage-1"},
+			{ID: "stage-2", Branch: "test-stack/2/stage-2"},
+		},
+	}
+
+	pruned, mutated, err := pruneMergedStages(
+		stack,
+		func(string) (bool, error) { return false, nil },
+		func(state.Stage, string) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("pruneMergedStages returned error: %v", err)
+	}
+	if mutated {
+		t.Fatal("expected mutated=false")
+	}
+	if pruned != 0 {
+		t.Fatalf("pruned = %d, want 0", pruned)
+	}
+	if stack.CurrentStage != "stage-1" {
+		t.Fatalf("CurrentStage = %q, want stage-1", stack.CurrentStage)
+	}
+}
+
+func TestPruneMergedStagesErrors(t *testing.T) {
+	t.Run("nil stack", func(t *testing.T) {
+		_, _, err := pruneMergedStages(nil, func(string) (bool, error) { return false, nil }, func(state.Stage, string) error { return nil })
+		if err == nil {
+			t.Fatal("expected error for nil stack")
+		}
+	})
+
+	t.Run("merge checker error", func(t *testing.T) {
+		stack := &state.Stack{Name: "test-stack", Stages: []state.Stage{{ID: "stage-1", Branch: "test-stack/1/stage-1"}}}
+		_, _, err := pruneMergedStages(
+			stack,
+			func(string) (bool, error) { return false, fmt.Errorf("gh failed") },
+			func(state.Stage, string) error { return nil },
+		)
+		if err == nil || !strings.Contains(err.Error(), "gh failed") {
+			t.Fatalf("expected checker error, got: %v", err)
+		}
+	})
+}
+
+func TestBuildStageSyncInfos(t *testing.T) {
+	stack := &state.Stack{
+		Name: "test-stack",
+		Stages: []state.Stage{
+			{ID: "stage-1", Branch: "test-stack/1/stage-1"},
+			{ID: "stage-2"},
+			{ID: "stage-3", Branch: "custom/branch-3"},
+		},
+	}
+
+	infos := buildStageSyncInfos(stack, "main")
+	if len(infos) != 3 {
+		t.Fatalf("len(infos) = %d, want 3", len(infos))
+	}
+
+	if infos[0].OldParent != "main" {
+		t.Fatalf("infos[0].OldParent = %q, want main", infos[0].OldParent)
+	}
+	if infos[1].Branch != "test-stack/2/stage-2" {
+		t.Fatalf("infos[1].Branch = %q, want generated stage branch", infos[1].Branch)
+	}
+	if infos[1].OldParent != "test-stack/1/stage-1" {
+		t.Fatalf("infos[1].OldParent = %q, want previous stage branch", infos[1].OldParent)
+	}
+	if infos[2].OldParent != "test-stack/2/stage-2" {
+		t.Fatalf("infos[2].OldParent = %q, want generated stage-2 branch", infos[2].OldParent)
+	}
+}
+
+func TestShouldTransplantRebase(t *testing.T) {
+	info := stackSyncStageInfo{
+		Branch:       "test-stack/2/stage-2",
+		OldParent:    "test-stack/1/stage-1",
+		ParentMerged: true,
+	}
+
+	if !shouldTransplantRebase(info, true, map[string]bool{"test-stack/1/stage-1": true}, "main") {
+		t.Fatal("expected transplant rebase when parent stage is merged")
+	}
+
+	if shouldTransplantRebase(info, true, map[string]bool{"test-stack/1/stage-1": false}, "main") {
+		t.Fatal("did not expect transplant rebase when parent stage is not merged")
+	}
+
+	if shouldTransplantRebase(info, false, map[string]bool{"test-stack/1/stage-1": true}, "main") {
+		t.Fatal("did not expect transplant rebase when prune mode is disabled")
+	}
+
+	if shouldTransplantRebase(info, true, map[string]bool{"test-stack/1/stage-1": true}, "test-stack/1/stage-1") {
+		t.Fatal("did not expect transplant rebase when current parent equals old parent")
+	}
+}
+
+func TestRunRebaseWithAbort(t *testing.T) {
+	t.Run("aborts after rebase failure", func(t *testing.T) {
+		calls := []string{}
+		err := runRebaseWithAbort(
+			func(_ string, args ...string) (string, error) {
+				calls = append(calls, strings.Join(args, " "))
+				if len(args) >= 1 && args[0] == "rebase" && (len(args) < 2 || args[1] != "--abort") {
+					return "", fmt.Errorf("conflict")
+				}
+				return "", nil
+			},
+			"/tmp/wt",
+			[]string{"rebase", "main"},
+			"stage-2",
+			"test-stack/2/stage-2",
+			"plain",
+		)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "Aborted rebase") {
+			t.Fatalf("expected aborted message, got: %v", err)
+		}
+		if !reflect.DeepEqual(calls, []string{"rebase main", "rebase --abort"}) {
+			t.Fatalf("unexpected call sequence: %v", calls)
+		}
+	})
+
+	t.Run("reports abort failure", func(t *testing.T) {
+		err := runRebaseWithAbort(
+			func(_ string, args ...string) (string, error) {
+				if len(args) >= 2 && args[0] == "rebase" && args[1] == "--abort" {
+					return "", fmt.Errorf("abort failed")
+				}
+				return "", fmt.Errorf("conflict")
+			},
+			"/tmp/wt",
+			[]string{"rebase", "main"},
+			"stage-2",
+			"test-stack/2/stage-2",
+			"plain",
+		)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "abort also failed") {
+			t.Fatalf("expected abort failure in message, got: %v", err)
+		}
+	})
 }

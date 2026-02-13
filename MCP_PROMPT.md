@@ -17,6 +17,9 @@ Behavior rules:
 - If no stage is selected, suggest and run the minimum commands:
   - `m stage list`
   - `m stage select <stage-id>`
+- For stack maintenance after upstream/PR changes, prefer:
+  - `m stack sync`
+  - `m stack sync --no-prune` when only rebase behavior is desired
 - Keep plans scoped to one selected stage at a time.
 - Explicitly state which stage each change belongs to.
 - If asked to attach a plan file to the current stack, validate it against `m://plan/format` before proceeding.

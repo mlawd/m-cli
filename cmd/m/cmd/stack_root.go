@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +25,7 @@ func newStackRootCmd() *cobra.Command {
 		newStackNewCmd(),
 		newStackAttachPlanCmd(),
 		newStackRemoveCmd(),
-		newStackRebaseCmd(),
+		newStackSyncCmd(),
 		newStackPushCmd(),
 		newStackListCmd(),
 		newStackSelectCmd(),
@@ -111,93 +112,417 @@ func stackHasStartedStages(stack *state.Stack) bool {
 	return false
 }
 
-func newStackRebaseCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rebase",
-		Short: "Rebase started stage branches in order",
+func newStackSyncCmd() *cobra.Command {
+	var noPrune bool
+
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Prune merged stages, remove local resources, and rebase remaining stages",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := discoverRepoContext()
-			if err != nil {
-				return err
-			}
-
-			config, stacksFile, err := loadState(repo)
-			if err != nil {
-				return err
-			}
-
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
-			if err != nil {
-				return err
-			}
-
-			repoInfo, err := gitx.DiscoverRepo(repo.rootPath)
-			if err != nil {
-				return err
-			}
-
-			parentBranch := repoInfo.DefaultBranch
-			rebasedCount := 0
-			mutated := false
-
-			for i := range stack.Stages {
-				stage := &stack.Stages[i]
-				branch := strings.TrimSpace(stage.Branch)
-				if branch == "" {
-					branch = stageBranchName(stack.Name, i, stage.ID)
-				}
-
-				if !gitx.BranchExists(repo.rootPath, branch) {
-					continue
-				}
-
-				worktree := strings.TrimSpace(stage.Worktree)
-				if worktree == "" {
-					worktree = filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(branch))
-					mutated = true
-				}
-
-				if _, err := os.Stat(worktree); os.IsNotExist(err) {
-					if err := os.MkdirAll(filepath.Dir(worktree), 0o755); err != nil {
-						return err
-					}
-					if err := gitx.AddWorktree(repo.rootPath, worktree, branch); err != nil {
-						return err
-					}
-					outSuccess(cmd.OutOrStdout(), "Created worktree: %s", worktree)
-				} else if err != nil {
-					return err
-				}
-
-				outStyled(cmd.OutOrStdout(), ansiBlue, "🔄", "Rebasing %s onto %s", branch, parentBranch)
-				if _, err := gitx.Run(worktree, "rebase", parentBranch); err != nil {
-					return fmt.Errorf("rebase failed for stage %q (%s): %w\nResolve in %s and run `git rebase --continue` or `git rebase --abort`", stage.ID, branch, err, worktree)
-				}
-
-				stage.Branch = branch
-				stage.Worktree = worktree
-				stage.Parent = parentBranch
-				parentBranch = branch
-				rebasedCount++
-				mutated = true
-			}
-
-			if mutated {
-				if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
-					return err
-				}
-			}
-
-			if rebasedCount == 0 {
-				outInfo(cmd.OutOrStdout(), "Nothing to rebase (no started stage branches)")
-				return nil
-			}
-
-			outSuccess(cmd.OutOrStdout(), "Rebased %d stage branch(es)", rebasedCount)
-			return nil
+			return runStackSync(cmd, noPrune)
 		},
 	}
+
+	cmd.Flags().BoolVar(&noPrune, "no-prune", false, "Keep merged stages in state and only rebase started branches")
+
+	return cmd
+}
+
+func runStackSync(cmd *cobra.Command, noPrune bool) error {
+	repo, err := discoverRepoContext()
+	if err != nil {
+		return err
+	}
+
+	config, stacksFile, err := loadState(repo)
+	if err != nil {
+		return err
+	}
+
+	stack, err := requireCurrentStackWithPlan(config, stacksFile)
+	if err != nil {
+		return err
+	}
+
+	repoInfo, err := gitx.DiscoverRepo(repo.rootPath)
+	if err != nil {
+		return err
+	}
+
+	pruneMerged := !noPrune
+	if pruneMerged {
+		if _, err := exec.LookPath("gh"); err != nil {
+			return fmt.Errorf("gh CLI is required for stack sync prune mode; rerun with --no-prune to skip merged-stage pruning")
+		}
+	}
+
+	stageInfos := buildStageSyncInfos(stack, repoInfo.DefaultBranch)
+	mergedByBranch := map[string]bool{}
+	if pruneMerged {
+		for _, info := range stageInfos {
+			merged, err := stagePRMerged(repo.rootPath, info.Branch)
+			if err != nil {
+				return err
+			}
+			mergedByBranch[info.Branch] = merged
+		}
+	}
+
+	mutated := false
+	prunedCount := 0
+
+	parentBranch := repoInfo.DefaultBranch
+	rebasedCount := 0
+
+	for _, info := range stageInfos {
+		if pruneMerged && mergedByBranch[info.Branch] {
+			continue
+		}
+
+		stage := &stack.Stages[info.Index]
+		branch := info.Branch
+
+		if !gitx.BranchExists(repo.rootPath, branch) {
+			continue
+		}
+
+		worktree := strings.TrimSpace(stage.Worktree)
+		if worktree == "" {
+			worktree = filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(branch))
+			mutated = true
+		}
+
+		if _, err := os.Stat(worktree); os.IsNotExist(err) {
+			if err := os.MkdirAll(filepath.Dir(worktree), 0o755); err != nil {
+				return err
+			}
+			if err := gitx.AddWorktree(repo.rootPath, worktree, branch); err != nil {
+				return err
+			}
+			outSuccess(cmd.OutOrStdout(), "Created worktree: %s", worktree)
+		} else if err != nil {
+			return err
+		}
+
+		rebaseArgs := []string{"rebase", parentBranch}
+		rebaseMode := "plain"
+		if shouldTransplantRebase(info, pruneMerged, mergedByBranch, parentBranch) {
+			upstream, err := resolveTransplantUpstream(repo.rootPath, branch, info.OldParent)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(upstream) == "" {
+				outWarn(cmd.OutOrStdout(), "Could not resolve upstream %s for %s; falling back to plain rebase onto %s", info.OldParent, branch, parentBranch)
+			} else {
+				rebaseArgs = []string{"rebase", "--onto", parentBranch, upstream}
+				rebaseMode = "transplant"
+				outStyled(cmd.OutOrStdout(), ansiBlue, "🔄", "Transplant rebasing %s onto %s (from %s)", branch, parentBranch, upstream)
+			}
+		} else {
+			outStyled(cmd.OutOrStdout(), ansiBlue, "🔄", "Rebasing %s onto %s", branch, parentBranch)
+		}
+
+		if err := runRebaseWithAbort(func(dir string, args ...string) (string, error) {
+			return gitx.Run(dir, args...)
+		}, worktree, rebaseArgs, stage.ID, branch, rebaseMode); err != nil {
+			return err
+		}
+
+		stage.Branch = branch
+		stage.Worktree = worktree
+		stage.Parent = parentBranch
+		parentBranch = branch
+		rebasedCount++
+		mutated = true
+	}
+
+	if pruneMerged {
+		removed, changed, err := pruneMergedStages(stack,
+			func(branch string) (bool, error) {
+				return mergedByBranch[branch], nil
+			},
+			func(stage state.Stage, branch string) error {
+				if err := removeStageWorktree(repo.rootPath, stage.Worktree); err != nil {
+					return err
+				}
+				if err := removeLocalStageBranch(repo.rootPath, branch); err != nil {
+					return err
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+		prunedCount = removed
+		mutated = mutated || changed
+	}
+
+	if mutated {
+		if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
+			return err
+		}
+	}
+
+	if pruneMerged {
+		if prunedCount == 0 {
+			outInfo(cmd.OutOrStdout(), "No merged stage PRs found to prune")
+		} else {
+			outSuccess(cmd.OutOrStdout(), "Pruned %d merged stage(s)", prunedCount)
+		}
+	}
+
+	if rebasedCount == 0 {
+		outInfo(cmd.OutOrStdout(), "Nothing to rebase (no started stage branches)")
+		return nil
+	}
+
+	outSuccess(cmd.OutOrStdout(), "Synced stack: rebased %d stage branch(es)", rebasedCount)
+	return nil
+}
+
+type stackSyncStageInfo struct {
+	Index        int
+	Branch       string
+	OldParent    string
+	ParentMerged bool
+}
+
+func buildStageSyncInfos(stack *state.Stack, defaultBranch string) []stackSyncStageInfo {
+	infos := make([]stackSyncStageInfo, 0, len(stack.Stages))
+	for idx := range stack.Stages {
+		branch := stageBranchFor(stack, idx)
+		oldParent := strings.TrimSpace(defaultBranch)
+		parentMerged := false
+		if idx > 0 {
+			oldParent = stageBranchFor(stack, idx-1)
+			parentMerged = true
+		}
+
+		infos = append(infos, stackSyncStageInfo{
+			Index:        idx,
+			Branch:       branch,
+			OldParent:    oldParent,
+			ParentMerged: parentMerged,
+		})
+	}
+
+	return infos
+}
+
+func shouldTransplantRebase(info stackSyncStageInfo, pruneMerged bool, mergedByBranch map[string]bool, currentParent string) bool {
+	if !pruneMerged || !info.ParentMerged {
+		return false
+	}
+	if strings.TrimSpace(info.OldParent) == "" {
+		return false
+	}
+	if strings.TrimSpace(currentParent) == strings.TrimSpace(info.OldParent) {
+		return false
+	}
+
+	return mergedByBranch[info.OldParent]
+}
+
+func runRebaseWithAbort(
+	runGit func(dir string, args ...string) (string, error),
+	worktree string,
+	rebaseArgs []string,
+	stageID string,
+	branch string,
+	mode string,
+) error {
+	if _, err := runGit(worktree, rebaseArgs...); err != nil {
+		if _, abortErr := runGit(worktree, "rebase", "--abort"); abortErr != nil {
+			return fmt.Errorf("rebase failed for stage %q (%s) [%s]: %w\nRebase abort also failed in %s: %v\nResolve manually in %s (`git rebase --abort`), then rerun `m stack sync`", stageID, branch, mode, err, worktree, abortErr, worktree)
+		}
+		return fmt.Errorf("rebase failed for stage %q (%s) [%s]: %w\nAborted rebase in %s; resolve issues and rerun `m stack sync`", stageID, branch, mode, err, worktree)
+	}
+
+	return nil
+}
+
+func resolveTransplantUpstream(repoRoot, stageBranch, oldParent string) (string, error) {
+	parent := strings.TrimSpace(oldParent)
+	if parent == "" {
+		return "", nil
+	}
+
+	candidates := []string{parent, "origin/" + parent}
+	for _, candidate := range candidates {
+		exists, err := gitCommitRefExists(repoRoot, candidate)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			continue
+		}
+
+		isAncestor, err := gitIsAncestor(repoRoot, candidate, stageBranch)
+		if err != nil {
+			return "", err
+		}
+		if isAncestor {
+			return candidate, nil
+		}
+
+		mergeBase, err := gitMergeBase(repoRoot, candidate, stageBranch)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(mergeBase) != "" {
+			return mergeBase, nil
+		}
+	}
+
+	return "", nil
+}
+
+func gitCommitRefExists(repoRoot, ref string) (bool, error) {
+	if strings.TrimSpace(ref) == "" {
+		return false, nil
+	}
+	_, err := gitx.Run(repoRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func gitIsAncestor(repoRoot, ancestor, descendant string) (bool, error) {
+	if strings.TrimSpace(ancestor) == "" || strings.TrimSpace(descendant) == "" {
+		return false, nil
+	}
+	_, err := gitx.Run(repoRoot, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func gitMergeBase(repoRoot, a, b string) (string, error) {
+	if strings.TrimSpace(a) == "" || strings.TrimSpace(b) == "" {
+		return "", nil
+	}
+
+	return gitx.Run(repoRoot, "merge-base", a, b)
+}
+
+func pruneMergedStages(
+	stack *state.Stack,
+	isMerged func(branch string) (bool, error),
+	cleanup func(stage state.Stage, branch string) error,
+) (int, bool, error) {
+	if stack == nil {
+		return 0, false, fmt.Errorf("stack is required")
+	}
+
+	remaining := make([]state.Stage, 0, len(stack.Stages))
+	prunedCount := 0
+	currentStage := strings.TrimSpace(stack.CurrentStage)
+	preferredCurrentIndex := -1
+	currentStillExists := false
+
+	for i := range stack.Stages {
+		stage := stack.Stages[i]
+		branch := strings.TrimSpace(stage.Branch)
+		if branch == "" {
+			branch = stageBranchName(stack.Name, i, stage.ID)
+		}
+
+		merged, err := isMerged(branch)
+		if err != nil {
+			return 0, false, err
+		}
+
+		if merged {
+			if err := cleanup(stage, branch); err != nil {
+				return 0, false, err
+			}
+			if currentStage != "" && stage.ID == currentStage {
+				preferredCurrentIndex = len(remaining)
+			}
+			prunedCount++
+			continue
+		}
+
+		if currentStage != "" && stage.ID == currentStage {
+			currentStillExists = true
+		}
+
+		remaining = append(remaining, stage)
+	}
+
+	if prunedCount == 0 {
+		return 0, false, nil
+	}
+
+	stack.Stages = remaining
+	if currentStillExists {
+		return prunedCount, true, nil
+	}
+
+	if len(remaining) == 0 {
+		stack.CurrentStage = ""
+		return prunedCount, true, nil
+	}
+
+	if preferredCurrentIndex >= 0 && preferredCurrentIndex < len(remaining) {
+		stack.CurrentStage = remaining[preferredCurrentIndex].ID
+		return prunedCount, true, nil
+	}
+
+	stack.CurrentStage = remaining[len(remaining)-1].ID
+	return prunedCount, true, nil
+}
+
+func stagePRMerged(repoRoot, headBranch string) (bool, error) {
+	out, err := runGH(repoRoot, "pr", "list", "--state", "merged", "--head", headBranch, "--json", "number", "--limit", "1")
+	if err != nil {
+		return false, err
+	}
+
+	var prs []struct {
+		Number int `json:"number"`
+	}
+	if err := json.Unmarshal([]byte(out), &prs); err != nil {
+		return false, fmt.Errorf("parse gh pr list output: %w", err)
+	}
+
+	return len(prs) > 0, nil
+}
+
+func removeStageWorktree(repoRoot, worktree string) error {
+	trimmed := strings.TrimSpace(worktree)
+	if trimmed == "" {
+		return nil
+	}
+
+	if _, err := os.Stat(trimmed); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	_, err := gitx.Run(repoRoot, "worktree", "remove", "--force", trimmed)
+	return err
+}
+
+func removeLocalStageBranch(repoRoot, branch string) error {
+	trimmed := strings.TrimSpace(branch)
+	if trimmed == "" {
+		return nil
+	}
+
+	if !gitx.BranchExists(repoRoot, trimmed) {
+		return nil
+	}
+
+	_, err := gitx.Run(repoRoot, "branch", "-D", trimmed)
+	return err
 }
 
 func newStackPushCmd() *cobra.Command {

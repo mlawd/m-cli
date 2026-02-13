@@ -26,7 +26,6 @@ func newStageRootCmd() *cobra.Command {
 		newStageSelectCmd(),
 		newStageCurrentCmd(),
 		newStageOpenCmd(),
-		newStageStartNextCmd(),
 		newStagePushCmd(),
 	)
 
@@ -96,11 +95,19 @@ func newStagePushCmd() *cobra.Command {
 }
 
 func newStageOpenCmd() *cobra.Command {
-	return &cobra.Command{
+	var noOpen bool
+	var next bool
+	var stageID string
+
+	cmd := &cobra.Command{
 		Use:   "open",
-		Short: "Interactively choose stack/stage and open opencode in worktree",
+		Short: "Open a stage worktree (interactive by default)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if next && strings.TrimSpace(stageID) != "" {
+				return fmt.Errorf("--next and --stage cannot be used together")
+			}
+
 			repo, err := discoverRepoContext()
 			if err != nil {
 				return err
@@ -109,6 +116,34 @@ func newStageOpenCmd() *cobra.Command {
 			config, stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
+			}
+
+			if next {
+				stack, err := requireCurrentStackWithPlan(config, stacksFile)
+				if err != nil {
+					return err
+				}
+
+				nextIndex, err := nextStageIndex(stack)
+				if err != nil {
+					return err
+				}
+
+				return startStageAtIndex(cmd, repo, config, stacksFile, stack, nextIndex, true, !noOpen)
+			}
+
+			if trimmedStageID := strings.TrimSpace(stageID); trimmedStageID != "" {
+				stack, err := requireCurrentStackWithPlan(config, stacksFile)
+				if err != nil {
+					return err
+				}
+
+				_, stageIndex := state.FindStage(stack, trimmedStageID)
+				if stageIndex < 0 {
+					return fmt.Errorf("stage %q not found in stack %q", trimmedStageID, stack.Name)
+				}
+
+				return startStageAtIndex(cmd, repo, config, stacksFile, stack, stageIndex, false, !noOpen)
 			}
 
 			if len(stacksFile.Stacks) == 0 {
@@ -145,44 +180,13 @@ func newStageOpenCmd() *cobra.Command {
 				return err
 			}
 
-			return startStageAtIndex(cmd, repo, config, stacksFile, stack, stageChoice, false, true)
-		},
-	}
-}
-
-func newStageStartNextCmd() *cobra.Command {
-	var noOpen bool
-
-	cmd := &cobra.Command{
-		Use:   "start-next",
-		Short: "Start and select the next stage in order",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			repo, err := discoverRepoContext()
-			if err != nil {
-				return err
-			}
-
-			config, stacksFile, err := loadState(repo)
-			if err != nil {
-				return err
-			}
-
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
-			if err != nil {
-				return err
-			}
-
-			nextIndex, err := nextStageIndex(stack)
-			if err != nil {
-				return err
-			}
-
-			return startStageAtIndex(cmd, repo, config, stacksFile, stack, nextIndex, true, !noOpen)
+			return startStageAtIndex(cmd, repo, config, stacksFile, stack, stageChoice, false, !noOpen)
 		},
 	}
 
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "Skip launching opencode")
+	cmd.Flags().BoolVar(&next, "next", false, "Start and open the next stage in the current stack")
+	cmd.Flags().StringVar(&stageID, "stage", "", "Start and open the specified stage id in the current stack")
 
 	return cmd
 }
@@ -522,7 +526,7 @@ func pushStageAndEnsurePROpts(cmd *cobra.Command, repoRoot string, stack *state.
 	stage := &stack.Stages[stageIndex]
 	branch := stageBranchFor(stack, stageIndex)
 	if !gitx.BranchExists(repoRoot, branch) {
-		return fmt.Errorf("stage branch %q does not exist; run: m stage start-next", branch)
+		return fmt.Errorf("stage branch %q does not exist; run: m stage open --next", branch)
 	}
 
 	pushArgs := []string{"push", "-u", "origin", branch}

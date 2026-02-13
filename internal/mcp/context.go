@@ -79,6 +79,7 @@ func planningGuide() string {
 
 1) Initialize local state once per repo:
    - m init
+   - m status
 
 2) Create a stack when starting a new effort:
    - m stack new <stack-name> [--plan-file ./plan.md]
@@ -87,6 +88,8 @@ func planningGuide() string {
 3) If the stack was created without a plan, either:
    - attach one before stage commands: m stack attach-plan ./plan.md
    - or start ad-hoc work without stages: m worktree open <branch>
+   - inspect all linked worktrees: m worktree list
+   - prune stale entries/orphans: m worktree prune
 
 4) Confirm or switch current stack:
    - m stack current
@@ -96,11 +99,13 @@ func planningGuide() string {
    - m stage list
    - m stage select <stage-id>
    - m stage open
-   - m stage start-next [--no-open]
+   - m stage open --next [--no-open]
+   - m stage open --stage <stage-id> [--no-open]
    - m stage current
 
 6) Keep stack branches synchronized as upstream changes land:
-   - m stack rebase
+   - m stack sync
+   - m stack sync --no-prune  (rebase-only)
 
 7) Publish a full stack (force-with-lease) when needed:
    - m stack push
@@ -127,6 +132,9 @@ func commandReference() string {
 - m init
   Initialize repo-local .m state for this repository.
 
+- m status
+  Print repo/worktree context and the effective current m stack/stage.
+
 - m stack new <stack-name> [--plan-file <file>]
   Create a stack, optionally from a markdown plan file (YAML frontmatter), and select it.
 
@@ -145,8 +153,9 @@ func commandReference() string {
 - m stack current
   Print the active stack name.
 
-- m stack rebase
-  Rebase started stage branches in order for the current stack.
+- m stack sync
+  Prune merged stage PRs from local stack state, remove their worktrees and local branches, then rebase remaining started stage branches in order.
+  Use --no-prune for rebase-only behavior.
 
 - m stack push
   Push started stage branches in order with --force-with-lease and create PRs when missing.
@@ -161,16 +170,19 @@ func commandReference() string {
   Print the active stage id for the current stack.
 
 - m stage open
-  Interactively select a stack and stage, create/reuse branch + worktree for that stage, select it, and open opencode in that worktree without a prompt.
-
-- m stage start-next
-  Start the next stage by creating/reusing its branch and worktree under .m/worktrees/, selecting it, and opening opencode in that worktree (use --no-open to skip).
+  Open stage worktrees. Default is interactive stack/stage selection; use --next for next-stage flow or --stage <id> for explicit stage selection. Use --no-open to skip launching opencode.
 
 - m stage push
   Push the current stage branch and create a PR if an open one does not exist.
 
 - m worktree open <branch> [--base <branch>] [--path <dir>] [--no-open]
   Create/reuse a branch and worktree without requiring stack stage plans.
+
+- m worktree list
+  List linked git worktrees and annotate managed/stage-owned entries.
+
+- m worktree prune
+  Run git worktree prune, delete orphan directories under .m/worktrees/, and clear stale stage worktree references.
 
 - m prompt default
   Print the default MCP prompt from MCP_PROMPT.md.

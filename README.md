@@ -13,6 +13,7 @@ go run ./cmd/m
 go run ./cmd/m help
 go run ./cmd/m version
 go run ./cmd/m init
+go run ./cmd/m status
 go run ./cmd/m stack new my-stack
 go run ./cmd/m stack attach-plan ./plan.md
 go run ./cmd/m stack remove my-stack
@@ -22,13 +23,15 @@ go run ./cmd/m stack current
 go run ./cmd/m stage list
 go run ./cmd/m stage select foundation
 go run ./cmd/m stage open
-go run ./cmd/m stage start-next
+go run ./cmd/m stage open --next
 go run ./cmd/m worktree open feature/no-plan --no-open
 go run ./cmd/m prompt default
-go run ./cmd/m stack rebase
+go run ./cmd/m stack sync
 go run ./cmd/m stack push
 go run ./cmd/m stage push
 go run ./cmd/m stage current
+go run ./cmd/m worktree list
+go run ./cmd/m worktree prune
 ```
 
 With Makefile args forwarding:
@@ -44,6 +47,7 @@ make run ARGS="stage list"
 
 - `m init` creates repo-local orchestration state in `.m/`
 - `m init` also appends `.m/` to `.git/info/exclude` so it stays local-only and untracked
+- `m status` prints a quick snapshot of repo/worktree + current m stack/stage context
 
 ## Stack + Stage workflow
 
@@ -56,10 +60,15 @@ make run ARGS="stage list"
 - `m stage list` lists stages for the current stack (requires attached plan)
 - `m stage select <stage-id>` selects a stage in the current stack
 - `m stage current` prints the current stage id (empty if none)
-- `m stage open` interactively selects stack and stage, upserts branch/worktree for that stage, selects it, and opens `opencode` in the stage worktree without a prompt
-- `m stage start-next` creates/reuses the next stage branch and worktree under `.m/worktrees/`, selects it, and opens `opencode` in that worktree with an initial prompt like `Implement stage <id>: <title>` (use `--no-open` to skip)
+- `m stage open` opens stage worktrees:
+  - default: interactively selects stack and stage
+  - `--next`: starts/opens the next stage in the current stack (with initial prompt)
+  - `--stage <id>`: starts/opens a specific stage id in the current stack
+  - `--no-open`: creates/reuses branch/worktree and selects context without launching `opencode`
 - `m worktree open <branch> [--base <branch>] [--path <dir>] [--no-open]` creates/reuses a branch worktree without requiring stack plan stages
-- `m stack rebase` rebases started stage branches in order (first onto default branch, then each onto the previous stage)
+- `m worktree list` lists linked git worktrees and annotates managed/stage-owned entries
+- `m worktree prune` runs `git worktree prune`, removes orphan directories under `.m/worktrees/`, and clears stale stage worktree references
+- `m stack sync` prunes merged stage PRs from local stack state, removes their worktrees and local branches, then rebases remaining started stage branches in order (`--no-prune` keeps all stages and performs rebase-only behavior)
 - `m stack push` pushes started stage branches in order with `--force-with-lease` and creates missing PRs
 - `m stage push` pushes the current stage branch and creates a PR if one does not already exist
 - `m prompt default` prints the default MCP prompt (`MCP_PROMPT.md`)
