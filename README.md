@@ -24,6 +24,7 @@ go run ./cmd/m stage select foundation
 go run ./cmd/m stage open
 go run ./cmd/m stage start-next
 go run ./cmd/m worktree open feature/no-plan --no-open
+go run ./cmd/m prompt default
 go run ./cmd/m stack rebase
 go run ./cmd/m stack push
 go run ./cmd/m stage push
@@ -61,6 +62,7 @@ make run ARGS="stage list"
 - `m stack rebase` rebases started stage branches in order (first onto default branch, then each onto the previous stage)
 - `m stack push` pushes started stage branches in order with `--force-with-lease` and creates missing PRs
 - `m stage push` pushes the current stage branch and creates a PR if one does not already exist
+- `m prompt default` prints the default MCP prompt (`MCP_PROMPT.md`)
 
 ### Ad-hoc worktree flow (no plan required)
 

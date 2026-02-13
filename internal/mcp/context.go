@@ -167,6 +167,9 @@ func commandReference() string {
 
 - m worktree open <branch> [--base <branch>] [--path <dir>] [--no-open]
   Create/reuse a branch and worktree without requiring stack stage plans.
+
+- m prompt default
+  Print the default MCP prompt from MCP_PROMPT.md.
 `)
 }
 
