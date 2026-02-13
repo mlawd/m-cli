@@ -282,6 +282,16 @@ func newStageCurrentCmd() *cobra.Command {
 				return err
 			}
 
+			_, workspaceStage := state.CurrentWorkspaceStackStage(stacksFile, repo.worktreePath)
+			if workspaceStage != "" {
+				outCurrent(cmd.OutOrStdout(), "Current stage: %s", workspaceStage)
+				return nil
+			}
+
+			if state.IsLinkedWorktree(repo.worktreePath, repo.rootPath) {
+				return nil
+			}
+
 			stack, err := requireCurrentStackWithPlan(config, stacksFile)
 			if err != nil {
 				return err

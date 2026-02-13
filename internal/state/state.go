@@ -194,6 +194,38 @@ func EffectiveCurrentStage(stack *Stack, workspaceRoot string) string {
 	return strings.TrimSpace(stack.CurrentStage)
 }
 
+func CurrentWorkspaceStackStage(stacks *Stacks, workspaceRoot string) (string, string) {
+	if stacks == nil {
+		return "", ""
+	}
+
+	workspace := normalizePath(workspaceRoot)
+	if workspace == "" {
+		return "", ""
+	}
+
+	for _, stack := range stacks.Stacks {
+		for _, stage := range stack.Stages {
+			if pathEqual(stage.Worktree, workspace) {
+				return strings.TrimSpace(stack.Name), strings.TrimSpace(stage.ID)
+			}
+		}
+	}
+
+	return "", ""
+}
+
+func IsLinkedWorktree(worktreePath, repoRoot string) bool {
+	worktree := normalizePath(worktreePath)
+	root := normalizePath(repoRoot)
+
+	if worktree == "" || root == "" {
+		return false
+	}
+
+	return worktree != root
+}
+
 func defaultConfig() *Config {
 	return &Config{Version: schemaVersion}
 }
@@ -241,6 +273,10 @@ func normalizePath(path string) string {
 	abs, err := filepath.Abs(trimmed)
 	if err == nil {
 		trimmed = abs
+	}
+
+	if resolved, err := filepath.EvalSymlinks(trimmed); err == nil {
+		trimmed = resolved
 	}
 
 	return filepath.Clean(trimmed)

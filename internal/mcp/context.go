@@ -49,13 +49,17 @@ func BuildContextSnapshot(cwd string, includeStacks bool) (*ContextSnapshot, err
 	if _, err := os.Stat(state.Dir(snapshot.RepoRoot)); err == nil {
 		snapshot.Initialized = true
 	}
-	snapshot.CurrentStack = strings.TrimSpace(config.CurrentStack)
 
-	if snapshot.CurrentStack != "" {
-		if stack, _ := state.FindStack(stacksFile, snapshot.CurrentStack); stack != nil {
-			snapshot.CurrentStage = state.EffectiveCurrentStage(stack, repo.TopLevel)
-		} else {
-			snapshot.Notes = append(snapshot.Notes, fmt.Sprintf("Current stack %q is missing from stacks state.", snapshot.CurrentStack))
+	if state.IsLinkedWorktree(repo.TopLevel, snapshot.RepoRoot) {
+		snapshot.CurrentStack, snapshot.CurrentStage = state.CurrentWorkspaceStackStage(stacksFile, repo.TopLevel)
+	} else {
+		snapshot.CurrentStack = strings.TrimSpace(config.CurrentStack)
+		if snapshot.CurrentStack != "" {
+			if stack, _ := state.FindStack(stacksFile, snapshot.CurrentStack); stack != nil {
+				snapshot.CurrentStage = state.EffectiveCurrentStage(stack, repo.TopLevel)
+			} else {
+				snapshot.Notes = append(snapshot.Notes, fmt.Sprintf("Current stack %q is missing from stacks state.", snapshot.CurrentStack))
+			}
 		}
 	}
 

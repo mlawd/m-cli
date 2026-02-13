@@ -506,6 +506,21 @@ func newStackCurrentCmd() *cobra.Command {
 				return err
 			}
 
+			stacksFile, err := state.LoadStacks(repo.rootPath)
+			if err != nil {
+				return err
+			}
+
+			workspaceStack, _ := state.CurrentWorkspaceStackStage(stacksFile, repo.worktreePath)
+			if workspaceStack != "" {
+				outCurrent(cmd.OutOrStdout(), "Current stack: %s", workspaceStack)
+				return nil
+			}
+
+			if state.IsLinkedWorktree(repo.worktreePath, repo.rootPath) {
+				return nil
+			}
+
 			if strings.TrimSpace(config.CurrentStack) == "" {
 				return nil
 			}
