@@ -637,7 +637,7 @@ func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string)
 		body.WriteString("No implementation details found for this stage.")
 	}
 
-	body.WriteString("\n\n## Stack PRs\n\n### Upstream\n")
+	body.WriteString("\n\n## Stack PRs\n\n### Earlier stages (base chain)\n")
 	upstream := stackPRListLines(stack, stageIndex, stackPRURLs, true)
 	if len(upstream) == 0 {
 		body.WriteString("- None\n")
@@ -648,7 +648,7 @@ func stagePRBody(stack *state.Stack, stageIndex int, stackPRURLs map[int]string)
 		}
 	}
 
-	body.WriteString("\n### Downstream\n")
+	body.WriteString("\n### Later stages (dependent chain)\n")
 	downstream := stackPRListLines(stack, stageIndex, stackPRURLs, false)
 	if len(downstream) == 0 {
 		body.WriteString("- None")

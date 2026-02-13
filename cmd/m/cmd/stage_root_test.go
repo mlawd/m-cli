@@ -119,9 +119,9 @@ func TestStagePRBodyIncludesStackLinks(t *testing.T) {
 		"Risk: Payment gateway latency spikes",
 		"Mitigation: Add retry with backoff and timeout metrics",
 		"## Stack PRs",
-		"### Upstream",
+		"### Earlier stages (base chain)",
 		"- stage-1: https://github.com/org/repo/pull/10",
-		"### Downstream",
+		"### Later stages (dependent chain)",
 		"- stage-3: https://github.com/org/repo/pull/12",
 	}
 
@@ -148,7 +148,7 @@ func TestStagePRBodyUsesNotCreatedPlaceholder(t *testing.T) {
 	if !strings.Contains(body, "No implementation details found for this stage.") {
 		t.Fatalf("expected fallback details message; got:\n%s", body)
 	}
-	if !strings.Contains(body, "### Downstream\n- None") {
+	if !strings.Contains(body, "### Later stages (dependent chain)\n- None") {
 		t.Fatalf("expected downstream none section; got:\n%s", body)
 	}
 }
