@@ -80,8 +80,9 @@ func planningGuide() string {
    - m stack new <stack-name> [--plan-file ./plan.md]
    - This auto-selects the stack.
 
-3) If the stack was created without a plan, attach one before stage commands:
-   - m stack attach-plan ./plan.md
+3) If the stack was created without a plan, either:
+   - attach one before stage commands: m stack attach-plan ./plan.md
+   - or start ad-hoc work without stages: m worktree open <branch>
 
 4) Confirm or switch current stack:
    - m stack current
@@ -162,6 +163,9 @@ func commandReference() string {
 
 - m stage push
   Push the current stage branch and create a PR if an open one does not exist.
+
+- m worktree open <branch> [--base <branch>] [--path <dir>] [--no-open]
+  Create/reuse a branch and worktree without requiring stack stage plans.
 `)
 }
 

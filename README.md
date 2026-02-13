@@ -23,6 +23,7 @@ go run ./cmd/m stage list
 go run ./cmd/m stage select foundation
 go run ./cmd/m stage open
 go run ./cmd/m stage start-next
+go run ./cmd/m worktree open feature/no-plan --no-open
 go run ./cmd/m stack rebase
 go run ./cmd/m stack push
 go run ./cmd/m stage push
@@ -56,9 +57,23 @@ make run ARGS="stage list"
 - `m stage current` prints the current stage id (empty if none)
 - `m stage open` interactively selects stack and stage, upserts branch/worktree for that stage, selects it, and opens `opencode` in the stage worktree without a prompt
 - `m stage start-next` creates/reuses the next stage branch and worktree under `.m/worktrees/`, selects it, and opens `opencode` in that worktree with an initial prompt like `Implement stage <id>: <title>` (use `--no-open` to skip)
+- `m worktree open <branch> [--base <branch>] [--path <dir>] [--no-open]` creates/reuses a branch worktree without requiring stack plan stages
 - `m stack rebase` rebases started stage branches in order (first onto default branch, then each onto the previous stage)
 - `m stack push` pushes started stage branches in order with `--force-with-lease` and creates missing PRs
 - `m stage push` pushes the current stage branch and creates a PR if one does not already exist
+
+### Ad-hoc worktree flow (no plan required)
+
+```bash
+# Create/reuse branch from repo default branch and open opencode there
+m worktree open feature/no-plan
+
+# Create branch from a specific base branch
+m worktree open feature/release-fix --base release/1.2
+
+# Use a custom worktree path and skip opening opencode
+m worktree open chore/docs-refresh --path ./worktrees/docs-refresh --no-open
+```
 
 ### Plan file format
 

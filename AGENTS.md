@@ -11,6 +11,7 @@ The default prompt is maintained in `MCP_PROMPT.md`.
 ## Workflow Policy
 
 - Prefer `m` for stack/stage context and stack-managed branch workflows.
+- For ad-hoc work that does not use plan stages, prefer `m worktree open <branch>`.
 - Before planning or edits, check context via MCP (`get_m_context`) or `m stack current` / `m stage current`.
 - Plan files are markdown documents with YAML frontmatter and must follow the v2 plan format from `m://plan/format`.
 - Do not create manual branch/worktree structures when equivalent `m` commands exist.

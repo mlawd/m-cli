@@ -12,6 +12,8 @@ Behavior rules:
 - If no stack is selected, suggest and run the minimum commands:
   - `m stack list`
   - `m stack select <stack-name>`
+- If the user needs branch/worktree setup without stage plans, use:
+  - `m worktree open <branch>`
 - If no stage is selected, suggest and run the minimum commands:
   - `m stage list`
   - `m stage select <stage-id>`
