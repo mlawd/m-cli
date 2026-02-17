@@ -18,15 +18,12 @@ func TestBuildContextSnapshotStacklessLinkedWorktree(t *testing.T) {
 	runGit(t, repoRoot, "worktree", "add", "-b", "feature/mapped", mappedWorktree)
 	runGit(t, repoRoot, "worktree", "add", "-b", "feature/stackless", stacklessWorktree)
 
-	if err := state.SaveConfig(repoRoot, &state.Config{Version: 1, CurrentStack: "checkout"}); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
-
 	stacks := &state.Stacks{
 		Version: 1,
 		Stacks: []state.Stack{
 			{
 				Name:         "checkout",
+				Type:         "feat",
 				PlanFile:     "plan.md",
 				CurrentStage: "foundation",
 				Stages: []state.Stage{
@@ -51,6 +48,9 @@ func TestBuildContextSnapshotStacklessLinkedWorktree(t *testing.T) {
 		}
 		if snapshot.CurrentStage != "foundation" {
 			t.Fatalf("CurrentStage = %q, want %q", snapshot.CurrentStage, "foundation")
+		}
+		if snapshot.CurrentStackType != "feat" {
+			t.Fatalf("CurrentStackType = %q, want %q", snapshot.CurrentStackType, "feat")
 		}
 	})
 

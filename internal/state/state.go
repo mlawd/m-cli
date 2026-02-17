@@ -11,11 +11,6 @@ import (
 
 const schemaVersion = 1
 
-type Config struct {
-	Version      int    `json:"version"`
-	CurrentStack string `json:"current_stack,omitempty"`
-}
-
 type Stacks struct {
 	Version int     `json:"version"`
 	Stacks  []Stack `json:"stacks"`
@@ -23,6 +18,7 @@ type Stacks struct {
 
 type Stack struct {
 	Name         string  `json:"name"`
+	Type         string  `json:"type,omitempty"`
 	PlanFile     string  `json:"plan_file"`
 	CreatedAt    string  `json:"created_at"`
 	CurrentStage string  `json:"current_stage,omitempty"`
@@ -51,12 +47,16 @@ func Dir(repoRoot string) string {
 	return filepath.Join(repoRoot, ".m")
 }
 
-func ConfigPath(repoRoot string) string {
-	return filepath.Join(Dir(repoRoot), "config.json")
+func StacksPath(repoRoot string) string {
+	return filepath.Join(Dir(repoRoot), "stacks", "index.json")
 }
 
-func StacksPath(repoRoot string) string {
-	return filepath.Join(Dir(repoRoot), "stacks.json")
+func StacksDir(repoRoot string) string {
+	return filepath.Join(Dir(repoRoot), "stacks")
+}
+
+func WorktreesDir(repoRoot string) string {
+	return filepath.Join(Dir(repoRoot), "worktrees")
 }
 
 func EnsureInitialized(repoRoot string) error {
@@ -65,12 +65,11 @@ func EnsureInitialized(repoRoot string) error {
 		return err
 	}
 
-	configPath := ConfigPath(repoRoot)
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := writeJSONAtomic(configPath, defaultConfig()); err != nil {
-			return err
-		}
-	} else if err != nil {
+	if err := os.MkdirAll(StacksDir(repoRoot), 0o755); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(WorktreesDir(repoRoot), 0o755); err != nil {
 		return err
 	}
 
@@ -84,34 +83,6 @@ func EnsureInitialized(repoRoot string) error {
 	}
 
 	return nil
-}
-
-func LoadConfig(repoRoot string) (*Config, error) {
-	path := ConfigPath(repoRoot)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return defaultConfig(), nil
-		}
-		return nil, err
-	}
-
-	var c Config
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-	if c.Version == 0 {
-		c.Version = schemaVersion
-	}
-
-	return &c, nil
-}
-
-func SaveConfig(repoRoot string, c *Config) error {
-	if c.Version == 0 {
-		c.Version = schemaVersion
-	}
-	return writeJSONAtomic(ConfigPath(repoRoot), c)
 }
 
 func LoadStacks(repoRoot string) (*Stacks, error) {
@@ -168,9 +139,25 @@ func FindStage(stack *Stack, id string) (*Stage, int) {
 	return nil, -1
 }
 
-func NewStack(name, planFile string, stages []Stage) Stack {
+var validStackTypes = map[string]struct{}{
+	"feat":  {},
+	"fix":   {},
+	"chore": {},
+}
+
+func NormalizeStackType(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func IsValidStackType(stackType string) bool {
+	_, ok := validStackTypes[NormalizeStackType(stackType)]
+	return ok
+}
+
+func NewStack(name, stackType, planFile string, stages []Stage) Stack {
 	return Stack{
 		Name:      name,
+		Type:      NormalizeStackType(stackType),
 		PlanFile:  planFile,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		Stages:    stages,
@@ -215,6 +202,35 @@ func CurrentWorkspaceStackStage(stacks *Stacks, workspaceRoot string) (string, s
 	return "", ""
 }
 
+func CurrentWorkspaceStackStageByPath(repoRoot, workspaceRoot string) (string, string) {
+	workspace := normalizePath(workspaceRoot)
+	if workspace == "" {
+		return "", ""
+	}
+
+	stacksRoot := normalizePath(StacksDir(repoRoot))
+	if stacksRoot == "" {
+		return "", ""
+	}
+
+	rel, err := filepath.Rel(stacksRoot, workspace)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", ""
+	}
+
+	parts := splitPathParts(rel)
+	if len(parts) < 1 {
+		return "", ""
+	}
+
+	stackName := strings.TrimSpace(parts[0])
+	if len(parts) >= 2 {
+		return stackName, strings.TrimSpace(parts[1])
+	}
+
+	return stackName, ""
+}
+
 func IsLinkedWorktree(worktreePath, repoRoot string) bool {
 	worktree := normalizePath(worktreePath)
 	root := normalizePath(repoRoot)
@@ -224,10 +240,6 @@ func IsLinkedWorktree(worktreePath, repoRoot string) bool {
 	}
 
 	return worktree != root
-}
-
-func defaultConfig() *Config {
-	return &Config{Version: schemaVersion}
 }
 
 func defaultStacks() *Stacks {
@@ -280,4 +292,23 @@ func normalizePath(path string) string {
 	}
 
 	return filepath.Clean(trimmed)
+}
+
+func splitPathParts(rel string) []string {
+	cleaned := filepath.Clean(strings.TrimSpace(rel))
+	if cleaned == "." || cleaned == "" {
+		return nil
+	}
+
+	raw := strings.Split(cleaned, string(filepath.Separator))
+	parts := make([]string, 0, len(raw))
+	for _, item := range raw {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" || trimmed == "." {
+			continue
+		}
+		parts = append(parts, trimmed)
+	}
+
+	return parts
 }

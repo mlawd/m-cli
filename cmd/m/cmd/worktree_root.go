@@ -61,7 +61,8 @@ func newWorktreeListCmd() *cobra.Command {
 				}
 			}
 
-			managedRoot := filepath.Join(state.Dir(repo.rootPath), "worktrees")
+			managedWorktreesRoot := state.WorktreesDir(repo.rootPath)
+			managedStacksRoot := state.StacksDir(repo.rootPath)
 			currentWorktree := normalizeCmdPath(repo.worktreePath)
 
 			for _, wt := range worktrees {
@@ -72,8 +73,10 @@ func newWorktreeListCmd() *cobra.Command {
 				}
 
 				kind := "external"
-				if isWithinDir(entryPath, managedRoot) {
-					kind = "managed"
+				if isWithinDir(entryPath, managedStacksRoot) {
+					kind = "stack"
+				} else if isWithinDir(entryPath, managedWorktreesRoot) {
+					kind = "ad-hoc"
 				}
 
 				branch := wt.Branch
@@ -263,7 +266,7 @@ func resolveWorktreePath(repoRoot, branch, override string) (string, error) {
 		return filepath.Clean(abs), nil
 	}
 
-	return filepath.Join(state.Dir(repoRoot), "worktrees", filepath.FromSlash(branch)), nil
+	return filepath.Join(state.WorktreesDir(repoRoot), filepath.FromSlash(branch)), nil
 }
 
 type gitWorktree struct {
@@ -328,7 +331,7 @@ func parseGitWorktreePorcelain(out string) []gitWorktree {
 }
 
 func removeOrphanManagedWorktrees(repoRoot string, active map[string]struct{}) (int, error) {
-	managedRoot := filepath.Join(state.Dir(repoRoot), "worktrees")
+	managedRoot := state.WorktreesDir(repoRoot)
 	if _, err := os.Stat(managedRoot); os.IsNotExist(err) {
 		return 0, nil
 	} else if err != nil {

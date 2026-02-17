@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mlawd/m-cli/internal/gitx"
@@ -33,11 +32,6 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 
-			config, err := state.LoadConfig(repo.rootPath)
-			if err != nil {
-				return err
-			}
-
 			stacksFile, err := state.LoadStacks(repo.rootPath)
 			if err != nil {
 				return err
@@ -46,16 +40,21 @@ func newStatusCmd() *cobra.Command {
 			currentStack := ""
 			currentStage := ""
 
+			workspaceStackByPath, workspaceStageByPath := state.CurrentWorkspaceStackStageByPath(repo.rootPath, repo.worktreePath)
 			workspaceStack, workspaceStage := state.CurrentWorkspaceStackStage(stacksFile, repo.worktreePath)
+			if workspaceStackByPath != "" {
+				workspaceStack = workspaceStackByPath
+				if workspaceStageByPath != "" {
+					workspaceStage = workspaceStageByPath
+				}
+			}
 			if workspaceStack != "" {
 				currentStack = workspaceStack
 				currentStage = workspaceStage
 			} else {
-				currentStack = strings.TrimSpace(config.CurrentStack)
-				if currentStack != "" {
-					if stack, _ := state.FindStack(stacksFile, currentStack); stack != nil {
-						currentStage = state.EffectiveCurrentStage(stack, repo.worktreePath)
-					}
+				if len(stacksFile.Stacks) == 1 {
+					currentStack = strings.TrimSpace(stacksFile.Stacks[0].Name)
+					currentStage = state.EffectiveCurrentStage(&stacksFile.Stacks[0], repo.worktreePath)
 				}
 			}
 
@@ -64,13 +63,15 @@ func newStatusCmd() *cobra.Command {
 			outInfo(cmd.OutOrStdout(), "Branch: %s", strings.TrimSpace(branch))
 			outInfo(cmd.OutOrStdout(), "m state: %s", boolWord(initialized))
 
-			managedRoot := filepath.Join(state.Dir(repo.rootPath), "worktrees")
+			managedRoot := state.WorktreesDir(repo.rootPath)
+			stackRoot := state.StacksDir(repo.rootPath)
 			outInfo(cmd.OutOrStdout(), "Managed worktrees dir: %s", managedRoot)
+			outInfo(cmd.OutOrStdout(), "Managed stacks dir: %s", stackRoot)
 			outInfo(cmd.OutOrStdout(), "Stacks: %d", len(stacksFile.Stacks))
 
 			if currentStack == "" {
 				outInfo(cmd.OutOrStdout(), "Current stack: (none)")
-				outInfo(cmd.OutOrStdout(), "Next: m stack list && m stack select <stack-name>")
+				outInfo(cmd.OutOrStdout(), "Next: m stack list")
 			} else {
 				outCurrent(cmd.OutOrStdout(), "Current stack: %s", currentStack)
 				if stack, _ := state.FindStack(stacksFile, currentStack); stack != nil {

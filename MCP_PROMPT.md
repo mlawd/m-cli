@@ -9,9 +9,11 @@ When planning or executing work, always do this first:
 
 Behavior rules:
 - Treat current stack/stage from `get_m_context` as source of truth.
-- If no stack is selected, suggest and run the minimum commands:
+- If stack context is not inferred, suggest and run the minimum commands:
   - `m stack list`
-  - `m stack select <stack-name>`
+  - `m stage open` (interactive stack/stage selection)
+- When creating a new stack, include a type when known:
+  - `m stack new <stack-name> --type <feat|fix|chore>`
 - If the user needs branch/worktree setup without stage plans, use:
   - `m worktree open <branch>`
 - If no stage is selected, suggest and run the minimum commands:

@@ -20,15 +20,12 @@ func TestCurrentCommandsInLinkedWorktrees(t *testing.T) {
 	runGitForCurrentCmdTests(t, repoRoot, "worktree", "add", "-b", "feature/mapped", mappedWorktree)
 	runGitForCurrentCmdTests(t, repoRoot, "worktree", "add", "-b", "feature/stackless", stacklessWorktree)
 
-	if err := state.SaveConfig(repoRoot, &state.Config{Version: 1, CurrentStack: "checkout"}); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
-
 	stacks := &state.Stacks{
 		Version: 1,
 		Stacks: []state.Stack{
 			{
 				Name:         "checkout",
+				Type:         "feat",
 				PlanFile:     "plan.md",
 				CurrentStage: "foundation",
 				Stages: []state.Stage{
@@ -64,7 +61,7 @@ func TestCurrentCommandsInLinkedWorktrees(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stack current returned error: %v", err)
 		}
-		if !strings.Contains(stackOut, "Current stack: checkout") {
+		if !strings.Contains(stackOut, "Current stack: checkout (feat)") {
 			t.Fatalf("stack current output = %q, expected current stack", stackOut)
 		}
 

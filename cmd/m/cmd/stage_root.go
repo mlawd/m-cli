@@ -21,6 +21,8 @@ func newStageRootCmd() *cobra.Command {
 		Short: "Manage stages in the current stack",
 	}
 
+	cmd.PersistentFlags().String("stack", "", "Use this stack instead of inferring from workspace")
+
 	cmd.AddCommand(
 		newStageListCmd(),
 		newStageSelectCmd(),
@@ -47,12 +49,12 @@ func newStagePushCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
 
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 			if err != nil {
 				return err
 			}
@@ -113,13 +115,13 @@ func newStageOpenCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
 
 			if next {
-				stack, err := requireCurrentStackWithPlan(config, stacksFile)
+				stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 				if err != nil {
 					return err
 				}
@@ -129,11 +131,11 @@ func newStageOpenCmd() *cobra.Command {
 					return err
 				}
 
-				return startStageAtIndex(cmd, repo, config, stacksFile, stack, nextIndex, true, !noOpen)
+				return startStageAtIndex(cmd, repo, stacksFile, stack, nextIndex, true, !noOpen)
 			}
 
 			if trimmedStageID := strings.TrimSpace(stageID); trimmedStageID != "" {
-				stack, err := requireCurrentStackWithPlan(config, stacksFile)
+				stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 				if err != nil {
 					return err
 				}
@@ -143,11 +145,31 @@ func newStageOpenCmd() *cobra.Command {
 					return fmt.Errorf("stage %q not found in stack %q", trimmedStageID, stack.Name)
 				}
 
-				return startStageAtIndex(cmd, repo, config, stacksFile, stack, stageIndex, false, !noOpen)
+				return startStageAtIndex(cmd, repo, stacksFile, stack, stageIndex, false, !noOpen)
 			}
 
 			if len(stacksFile.Stacks) == 0 {
 				return fmt.Errorf("no stacks found; run: m stack new <stack-name>")
+			}
+
+			overrideStack := stackNameFromFlag(cmd)
+			if strings.TrimSpace(overrideStack) != "" {
+				stack, err := requireCurrentStackWithPlan(stacksFile, repo, overrideStack)
+				if err != nil {
+					return err
+				}
+
+				stageOptions := make([]string, 0, len(stack.Stages))
+				for _, stage := range stack.Stages {
+					stageOptions = append(stageOptions, fmt.Sprintf("%s - %s", stage.ID, stage.Title))
+				}
+
+				stageChoice, err := promptSelectIndex(fmt.Sprintf("Select stage for %s", stack.Name), stageOptions)
+				if err != nil {
+					return err
+				}
+
+				return startStageAtIndex(cmd, repo, stacksFile, stack, stageChoice, false, !noOpen)
 			}
 
 			stackIndexes := []int{}
@@ -180,7 +202,7 @@ func newStageOpenCmd() *cobra.Command {
 				return err
 			}
 
-			return startStageAtIndex(cmd, repo, config, stacksFile, stack, stageChoice, false, !noOpen)
+			return startStageAtIndex(cmd, repo, stacksFile, stack, stageChoice, false, !noOpen)
 		},
 	}
 
@@ -202,12 +224,12 @@ func newStageListCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
 
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 			if err != nil {
 				return err
 			}
@@ -245,12 +267,12 @@ func newStageSelectCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
 
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 			if err != nil {
 				return err
 			}
@@ -281,7 +303,7 @@ func newStageCurrentCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
@@ -296,7 +318,7 @@ func newStageCurrentCmd() *cobra.Command {
 				return nil
 			}
 
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 			if err != nil {
 				return err
 			}
@@ -312,24 +334,7 @@ func newStageCurrentCmd() *cobra.Command {
 	}
 }
 
-func requireCurrentStackWithPlan(config *state.Config, stacksFile *state.Stacks) (*state.Stack, error) {
-	if strings.TrimSpace(config.CurrentStack) == "" {
-		return nil, fmt.Errorf("no stack selected; run: m stack select <stack-name>")
-	}
-
-	stack, _ := state.FindStack(stacksFile, config.CurrentStack)
-	if stack == nil {
-		return nil, fmt.Errorf("current stack %q not found", config.CurrentStack)
-	}
-
-	if strings.TrimSpace(stack.PlanFile) == "" || len(stack.Stages) == 0 {
-		return nil, fmt.Errorf("no plan attached to current stack; run: m stack attach-plan <plan-file>")
-	}
-
-	return stack, nil
-}
-
-func startStageAtIndex(cmd *cobra.Command, repo *repoContext, config *state.Config, stacksFile *state.Stacks, stack *state.Stack, stageIndex int, withPrompt bool, openAgent bool) error {
+func startStageAtIndex(cmd *cobra.Command, repo *repoContext, stacksFile *state.Stacks, stack *state.Stack, stageIndex int, withPrompt bool, openAgent bool) error {
 	if stack == nil {
 		return fmt.Errorf("stack is required")
 	}
@@ -359,7 +364,7 @@ func startStageAtIndex(cmd *cobra.Command, repo *repoContext, config *state.Conf
 
 	worktree := strings.TrimSpace(target.Worktree)
 	if worktree == "" {
-		worktree = filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(branch))
+		worktree = filepath.Join(state.StacksDir(repo.rootPath), filepath.FromSlash(stack.Name), filepath.FromSlash(target.ID))
 	}
 
 	if _, err := os.Stat(worktree); os.IsNotExist(err) {
@@ -380,13 +385,6 @@ func startStageAtIndex(cmd *cobra.Command, repo *repoContext, config *state.Conf
 	target.Worktree = worktree
 	target.Parent = parentBranch
 	stack.CurrentStage = target.ID
-
-	if config != nil {
-		config.CurrentStack = stack.Name
-		if err := state.SaveConfig(repo.rootPath, config); err != nil {
-			return err
-		}
-	}
 
 	if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
 		return err

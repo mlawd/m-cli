@@ -21,6 +21,8 @@ func newStackRootCmd() *cobra.Command {
 		Short: "Manage stacks",
 	}
 
+	cmd.PersistentFlags().String("stack", "", "Use this stack instead of inferring from workspace")
+
 	cmd.AddCommand(
 		newStackNewCmd(),
 		newStackAttachPlanCmd(),
@@ -28,7 +30,6 @@ func newStackRootCmd() *cobra.Command {
 		newStackSyncCmd(),
 		newStackPushCmd(),
 		newStackListCmd(),
-		newStackSelectCmd(),
 		newStackCurrentCmd(),
 	)
 
@@ -51,7 +52,7 @@ func newStackRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
@@ -66,7 +67,7 @@ func newStackRemoveCmd() *cobra.Command {
 			}
 
 			if deleteWorktrees {
-				stackWorktreesDir := filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(strings.Trim(stack.Name, "/")))
+				stackWorktreesDir := filepath.Join(state.StacksDir(repo.rootPath), filepath.FromSlash(strings.Trim(stack.Name, "/")))
 				if err := os.RemoveAll(stackWorktreesDir); err != nil {
 					return err
 				}
@@ -79,20 +80,13 @@ func newStackRemoveCmd() *cobra.Command {
 				return err
 			}
 
-			if config.CurrentStack == removedStackName {
-				config.CurrentStack = ""
-				if err := state.SaveConfig(repo.rootPath, config); err != nil {
-					return err
-				}
-			}
-
 			outSuccess(cmd.OutOrStdout(), "Removed stack %q", removedStackName)
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Allow removing stack with started stages")
-	cmd.Flags().BoolVar(&deleteWorktrees, "delete-worktrees", false, "Also remove .m/worktrees for this stack")
+	cmd.Flags().BoolVar(&deleteWorktrees, "delete-worktrees", false, "Also remove .m/stacks/<stack-name> worktrees for this stack")
 
 	return cmd
 }
@@ -135,12 +129,12 @@ func runStackSync(cmd *cobra.Command, noPrune bool) error {
 		return err
 	}
 
-	config, stacksFile, err := loadState(repo)
+	stacksFile, err := loadState(repo)
 	if err != nil {
 		return err
 	}
 
-	stack, err := requireCurrentStackWithPlan(config, stacksFile)
+	stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 	if err != nil {
 		return err
 	}
@@ -189,7 +183,7 @@ func runStackSync(cmd *cobra.Command, noPrune bool) error {
 
 		worktree := strings.TrimSpace(stage.Worktree)
 		if worktree == "" {
-			worktree = filepath.Join(state.Dir(repo.rootPath), "worktrees", filepath.FromSlash(branch))
+			worktree = filepath.Join(state.StacksDir(repo.rootPath), filepath.FromSlash(stack.Name), filepath.FromSlash(stage.ID))
 			mutated = true
 		}
 
@@ -540,12 +534,12 @@ func newStackPushCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
 
-			stack, err := requireCurrentStackWithPlan(config, stacksFile)
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
 			if err != nil {
 				return err
 			}
@@ -599,6 +593,7 @@ func startedStageIndexes(stack *state.Stack, localBranchExists func(branch strin
 
 func newStackNewCmd() *cobra.Command {
 	var planFile string
+	var stackType string
 
 	cmd := &cobra.Command{
 		Use:   "new <stack-name>",
@@ -610,12 +605,17 @@ func newStackNewCmd() *cobra.Command {
 				return err
 			}
 
+			normalizedStackType := state.NormalizeStackType(stackType)
+			if normalizedStackType != "" && !state.IsValidStackType(normalizedStackType) {
+				return fmt.Errorf("invalid stack type %q; valid values: feat, fix, chore", stackType)
+			}
+
 			repo, err := discoverRepoContext()
 			if err != nil {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
@@ -635,27 +635,27 @@ func newStackNewCmd() *cobra.Command {
 				stages = parsedStages
 			}
 
-			stacksFile.Stacks = append(stacksFile.Stacks, state.NewStack(stackName, resolvedPlanFile, stages))
+			stacksFile.Stacks = append(stacksFile.Stacks, state.NewStack(stackName, normalizedStackType, resolvedPlanFile, stages))
 			if err := state.SaveStacks(repo.rootPath, stacksFile); err != nil {
 				return err
 			}
 
-			config.CurrentStack = stackName
-			if err := state.SaveConfig(repo.rootPath, config); err != nil {
+			if err := os.MkdirAll(filepath.Join(state.StacksDir(repo.rootPath), filepath.FromSlash(stackName)), 0o755); err != nil {
 				return err
 			}
 
+			displayName := formatStackDisplayName(state.Stack{Name: stackName, Type: normalizedStackType})
 			if resolvedPlanFile == "" {
-				outSuccess(cmd.OutOrStdout(), "Created stack %q (no plan attached yet)", stackName)
+				outSuccess(cmd.OutOrStdout(), "Created stack %q (no plan attached yet)", displayName)
 			} else {
-				outSuccess(cmd.OutOrStdout(), "Created stack %q with %d stage(s)", stackName, len(stages))
+				outSuccess(cmd.OutOrStdout(), "Created stack %q with %d stage(s)", displayName, len(stages))
 			}
-			outCurrent(cmd.OutOrStdout(), "Current stack: %s", stackName)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&planFile, "plan-file", "", "Markdown plan file path")
+	cmd.Flags().StringVar(&stackType, "type", "", "Stack type (feat, fix, chore)")
 
 	return cmd
 }
@@ -671,19 +671,14 @@ func newStackAttachPlanCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
 
-			currentStackName := strings.TrimSpace(config.CurrentStack)
-			if currentStackName == "" {
-				return fmt.Errorf("no stack selected; run: m stack select <stack-name>")
-			}
-
-			stack, _ := state.FindStack(stacksFile, currentStackName)
-			if stack == nil {
-				return fmt.Errorf("current stack %q not found", currentStackName)
+			stack, err := requireCurrentStack(stacksFile, repo, stackNameFromFlag(cmd))
+			if err != nil {
+				return err
 			}
 
 			if strings.TrimSpace(stack.PlanFile) != "" {
@@ -759,7 +754,7 @@ func newStackListCmd() *cobra.Command {
 				return err
 			}
 
-			config, stacksFile, err := loadState(repo)
+			stacksFile, err := loadState(repo)
 			if err != nil {
 				return err
 			}
@@ -769,47 +764,19 @@ func newStackListCmd() *cobra.Command {
 				return nil
 			}
 
+			currentStack, err := resolveCurrentStack(stacksFile, repo, stackNameFromFlag(cmd))
+			if err != nil {
+				return err
+			}
 			for _, stack := range stacksFile.Stacks {
-				if stack.Name == config.CurrentStack {
-					outCurrent(cmd.OutOrStdout(), "%s  ·  %d stage(s)", stack.Name, len(stack.Stages))
+				displayName := formatStackDisplayName(stack)
+				if currentStack != nil && stack.Name == currentStack.Name {
+					outCurrent(cmd.OutOrStdout(), "%s  ·  %d stage(s)", displayName, len(stack.Stages))
 					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s  ·  %d stage(s)\n", stack.Name, len(stack.Stages))
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s  ·  %d stage(s)\n", displayName, len(stack.Stages))
 			}
 
-			return nil
-		},
-	}
-}
-
-func newStackSelectCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "select <stack-name>",
-		Short: "Set current stack context",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			stackName := strings.TrimSpace(args[0])
-
-			repo, err := discoverRepoContext()
-			if err != nil {
-				return err
-			}
-
-			config, stacksFile, err := loadState(repo)
-			if err != nil {
-				return err
-			}
-
-			if existing, _ := state.FindStack(stacksFile, stackName); existing == nil {
-				return fmt.Errorf("stack %q not found", stackName)
-			}
-
-			config.CurrentStack = stackName
-			if err := state.SaveConfig(repo.rootPath, config); err != nil {
-				return err
-			}
-
-			outCurrent(cmd.OutOrStdout(), "Current stack: %s", stackName)
 			return nil
 		},
 	}
@@ -826,19 +793,38 @@ func newStackCurrentCmd() *cobra.Command {
 				return err
 			}
 
-			config, err := state.LoadConfig(repo.rootPath)
-			if err != nil {
-				return err
-			}
-
 			stacksFile, err := state.LoadStacks(repo.rootPath)
 			if err != nil {
 				return err
 			}
 
+			override := stackNameFromFlag(cmd)
+			if strings.TrimSpace(override) != "" {
+				stack, _ := state.FindStack(stacksFile, override)
+				if stack == nil {
+					return fmt.Errorf("stack %q not found", override)
+				}
+				outCurrent(cmd.OutOrStdout(), "Current stack: %s", formatStackDisplayName(*stack))
+				return nil
+			}
+
+			workspaceStackByPath, _ := state.CurrentWorkspaceStackStageByPath(repo.rootPath, repo.worktreePath)
+			if workspaceStackByPath != "" {
+				if stack, _ := state.FindStack(stacksFile, workspaceStackByPath); stack != nil {
+					outCurrent(cmd.OutOrStdout(), "Current stack: %s", formatStackDisplayName(*stack))
+				} else {
+					outCurrent(cmd.OutOrStdout(), "Current stack: %s", workspaceStackByPath)
+				}
+				return nil
+			}
+
 			workspaceStack, _ := state.CurrentWorkspaceStackStage(stacksFile, repo.worktreePath)
 			if workspaceStack != "" {
-				outCurrent(cmd.OutOrStdout(), "Current stack: %s", workspaceStack)
+				if stack, _ := state.FindStack(stacksFile, workspaceStack); stack != nil {
+					outCurrent(cmd.OutOrStdout(), "Current stack: %s", formatStackDisplayName(*stack))
+				} else {
+					outCurrent(cmd.OutOrStdout(), "Current stack: %s", workspaceStack)
+				}
 				return nil
 			}
 
@@ -846,12 +832,24 @@ func newStackCurrentCmd() *cobra.Command {
 				return nil
 			}
 
-			if strings.TrimSpace(config.CurrentStack) == "" {
-				return nil
+			if len(stacksFile.Stacks) == 1 {
+				outCurrent(cmd.OutOrStdout(), "Current stack: %s", formatStackDisplayName(stacksFile.Stacks[0]))
 			}
-
-			outCurrent(cmd.OutOrStdout(), "Current stack: %s", config.CurrentStack)
 			return nil
 		},
 	}
+}
+
+func formatStackDisplayName(stack state.Stack) string {
+	displayName := strings.TrimSpace(stack.Name)
+	if displayName == "" {
+		return ""
+	}
+
+	stackType := state.NormalizeStackType(stack.Type)
+	if stackType == "" {
+		return displayName
+	}
+
+	return fmt.Sprintf("%s (%s)", displayName, stackType)
 }

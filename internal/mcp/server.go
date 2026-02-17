@@ -76,7 +76,7 @@ func registerResources(srv *mcpserver.MCPServer) {
 		mmcp.NewResource(
 			"m://state/context",
 			"Current m Context",
-			mmcp.WithResourceDescription("JSON snapshot of repo-local m state, including selected stack and stage"),
+			mmcp.WithResourceDescription("JSON snapshot of repo-local m state, including selected stack, stack type, and stage"),
 			mmcp.WithMIMEType("application/json"),
 		),
 		func(ctx context.Context, request mmcp.ReadResourceRequest) ([]mmcp.ResourceContents, error) {
@@ -124,7 +124,7 @@ func registerTools(srv *mcpserver.MCPServer) {
 	srv.AddTool(
 		mmcp.NewTool(
 			"get_m_context",
-			mmcp.WithDescription("Return current repository context for m, including selected stack and stage"),
+			mmcp.WithDescription("Return current repository context for m, including selected stack, stack type, and stage"),
 			mmcp.WithBoolean(
 				"include_stacks",
 				mmcp.Description("When true, include full stack/stage objects in response"),
@@ -193,6 +193,9 @@ func registerTools(srv *mcpserver.MCPServer) {
 			if snapshot.CurrentStage != "" {
 				headline += fmt.Sprintf(" | current stage: %s", snapshot.CurrentStage)
 			}
+			if snapshot.CurrentStackType != "" {
+				headline += fmt.Sprintf(" | stack type: %s", snapshot.CurrentStackType)
+			}
 
 			var textBuilder strings.Builder
 			textBuilder.WriteString(headline)
@@ -229,7 +232,7 @@ func registerTools(srv *mcpserver.MCPServer) {
 
 			textBuilder.WriteString("\nContext checks:\n")
 			textBuilder.WriteString("1. Read `m://state/context` or call `get_m_context`.\n")
-			textBuilder.WriteString("2. If no stack is selected, run `m stack list` then `m stack select <stack-name>`.\n")
+			textBuilder.WriteString("2. If stack context is not inferred, run `m stack list` then `m stage open` for interactive selection.\n")
 			textBuilder.WriteString("3. If no stage is selected, run `m stage list` then `m stage select <stage-id>`.\n")
 			textBuilder.WriteString("4. Before handoff, run `m stage current` and summarize stage-scoped changes.\n")
 
@@ -247,13 +250,14 @@ func registerTools(srv *mcpserver.MCPServer) {
 				},
 				"context_checks": []string{
 					"Read `m://state/context` or call `get_m_context`.",
-					"If no stack is selected, run `m stack list` then `m stack select <stack-name>`.",
+					"If stack context is not inferred, run `m stack list` then `m stage open` for interactive selection.",
 					"If no stage is selected, run `m stage list` then `m stage select <stage-id>`.",
 					"Before handoff, run `m stage current` and summarize stage-scoped changes.",
 				},
 				"context": map[string]interface{}{
-					"current_stack": snapshot.CurrentStack,
-					"current_stage": snapshot.CurrentStage,
+					"current_stack":      snapshot.CurrentStack,
+					"current_stack_type": snapshot.CurrentStackType,
+					"current_stage":      snapshot.CurrentStage,
 				},
 			}
 

@@ -55,3 +55,18 @@ func TestIsLinkedWorktree(t *testing.T) {
 		t.Fatal("IsLinkedWorktree() = false for linked worktree, want true")
 	}
 }
+
+func TestNormalizeStackType(t *testing.T) {
+	if got := NormalizeStackType("  FEAT "); got != "feat" {
+		t.Fatalf("NormalizeStackType() = %q, want %q", got, "feat")
+	}
+}
+
+func TestIsValidStackType(t *testing.T) {
+	if !IsValidStackType("fix") {
+		t.Fatal("IsValidStackType() = false, want true for fix")
+	}
+	if IsValidStackType("feature") {
+		t.Fatal("IsValidStackType() = true, want false for feature")
+	}
+}

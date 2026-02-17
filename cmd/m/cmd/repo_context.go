@@ -26,20 +26,15 @@ func discoverRepoContext() (*repoContext, error) {
 	}, nil
 }
 
-func loadState(ctx *repoContext) (*state.Config, *state.Stacks, error) {
+func loadState(ctx *repoContext) (*state.Stacks, error) {
 	if err := state.EnsureInitialized(ctx.rootPath); err != nil {
-		return nil, nil, err
-	}
-
-	config, err := state.LoadConfig(ctx.rootPath)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	stacks, err := state.LoadStacks(ctx.rootPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return config, stacks, nil
+	return stacks, nil
 }

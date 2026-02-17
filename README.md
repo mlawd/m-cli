@@ -14,11 +14,10 @@ go run ./cmd/m help
 go run ./cmd/m version
 go run ./cmd/m init
 go run ./cmd/m status
-go run ./cmd/m stack new my-stack
+go run ./cmd/m stack new my-stack --type feat
 go run ./cmd/m stack attach-plan ./plan.md
 go run ./cmd/m stack remove my-stack
 go run ./cmd/m stack list
-go run ./cmd/m stack select my-stack
 go run ./cmd/m stack current
 go run ./cmd/m stage list
 go run ./cmd/m stage select foundation
@@ -38,7 +37,7 @@ With Makefile args forwarding:
 
 ```bash
 make run ARGS="init"
-make run ARGS="stack new my-stack"
+make run ARGS="stack new my-stack --type feat"
 make run ARGS="stack attach-plan ./plan.md"
 make run ARGS="stage list"
 ```
@@ -51,12 +50,12 @@ make run ARGS="stage list"
 
 ## Stack + Stage workflow
 
-- `m stack new <stack-name> [--plan-file <plan.md>]` creates a stack and auto-selects it
-- `m stack attach-plan <plan.md>` attaches a plan to the current stack (fails if one is already attached)
-- `m stack list` lists stacks and marks the selected one
+- `m stack new <stack-name> [--type <feat|fix|chore>] [--plan-file <plan.md>]` creates a stack
+- `m stack attach-plan <plan.md>` attaches a plan to the inferred current stack (fails if one is already attached)
+- `m stack list` lists stacks and marks the inferred current one when available
 - `m stack remove <stack-name> [--force] [--delete-worktrees]` removes a stack from local state
-- `m stack select <stack-name>` sets current stack context
-- `m stack current` prints the current stack name
+- `m stack current` prints the inferred stack name (from workspace path, or the only stack in repo root)
+- most `m stack` and `m stage` commands accept `--stack <stack-name>` to override inference from cwd
 - `m stage list` lists stages for the current stack (requires attached plan)
 - `m stage select <stage-id>` selects a stage in the current stack
 - `m stage current` prints the current stage id (empty if none)
@@ -65,8 +64,9 @@ make run ARGS="stage list"
   - `--next`: starts/opens the next stage in the current stack (with initial prompt)
   - `--stage <id>`: starts/opens a specific stage id in the current stack
   - `--no-open`: creates/reuses branch/worktree and selects context without launching `opencode`
+- stage worktrees are managed under `.m/stacks/<stack>/<stage>`
 - `m worktree open <branch> [--base <branch>] [--path <dir>] [--no-open]` creates/reuses a branch worktree without requiring stack plan stages
-- `m worktree list` lists linked git worktrees and annotates managed/stage-owned entries
+- `m worktree list` lists linked git worktrees and annotates stack/ad-hoc ownership
 - `m worktree prune` runs `git worktree prune`, removes orphan directories under `.m/worktrees/`, and clears stale stage worktree references
 - `m stack sync` prunes merged stage PRs from local stack state, removes their worktrees and local branches, then rebases remaining started stage branches in order (`--no-prune` keeps all stages and performs rebase-only behavior)
 - `m stack push` pushes started stage branches in order with `--force-with-lease` and creates missing PRs

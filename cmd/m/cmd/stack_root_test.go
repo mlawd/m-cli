@@ -354,3 +354,44 @@ func TestRunRebaseWithAbort(t *testing.T) {
 		}
 	})
 }
+
+func TestStackNewPersistsType(t *testing.T) {
+	repoRoot := initGitRepoForCurrentCmdTests(t)
+
+	out, err := runRootCmdInDir(repoRoot, "stack", "new", "checkout", "--type", "feat")
+	if err != nil {
+		t.Fatalf("stack new returned error: %v\noutput: %s", err, out)
+	}
+
+	stacks, err := state.LoadStacks(repoRoot)
+	if err != nil {
+		t.Fatalf("LoadStacks returned error: %v", err)
+	}
+	if len(stacks.Stacks) != 1 {
+		t.Fatalf("len(stacks.Stacks) = %d, want 1", len(stacks.Stacks))
+	}
+	if stacks.Stacks[0].Type != "feat" {
+		t.Fatalf("stack type = %q, want %q", stacks.Stacks[0].Type, "feat")
+	}
+}
+
+func TestStackNewRejectsInvalidType(t *testing.T) {
+	repoRoot := initGitRepoForCurrentCmdTests(t)
+
+	out, err := runRootCmdInDir(repoRoot, "stack", "new", "checkout", "--type", "feature")
+	if err == nil {
+		t.Fatalf("expected error for invalid type, got none\noutput: %s", out)
+	}
+	if !strings.Contains(err.Error(), "invalid stack type") {
+		t.Fatalf("unexpected error for invalid type: %v", err)
+	}
+}
+
+func TestFormatStackDisplayName(t *testing.T) {
+	if got := formatStackDisplayName(state.Stack{Name: "checkout", Type: "fix"}); got != "checkout (fix)" {
+		t.Fatalf("formatStackDisplayName() = %q, want %q", got, "checkout (fix)")
+	}
+	if got := formatStackDisplayName(state.Stack{Name: "checkout"}); got != "checkout" {
+		t.Fatalf("formatStackDisplayName() = %q, want %q", got, "checkout")
+	}
+}
