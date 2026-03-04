@@ -25,6 +25,15 @@ type Stack struct {
 	Stages       []Stage `json:"stages"`
 }
 
+// Stage status constants for the state machine.
+const (
+	StageStatusPending      = "pending"
+	StageStatusImplementing = "implementing"
+	StageStatusAIReview     = "ai-review"
+	StageStatusHumanReview  = "human-review"
+	StageStatusDone         = "done"
+)
+
 type Stage struct {
 	ID             string      `json:"id"`
 	Title          string      `json:"title"`
@@ -36,6 +45,9 @@ type Stage struct {
 	Branch         string      `json:"branch,omitempty"`
 	Worktree       string      `json:"worktree,omitempty"`
 	Parent         string      `json:"parent_branch,omitempty"`
+	Status         string      `json:"status,omitempty"`      // pending|implementing|ai-review|human-review|done
+	StartedAt      string      `json:"started_at,omitempty"`  // set when → implementing
+	ReviewedAt     string      `json:"reviewed_at,omitempty"` // set when → human-review
 }
 
 type StageRisk struct {
@@ -240,6 +252,61 @@ func IsLinkedWorktree(worktreePath, repoRoot string) bool {
 	}
 
 	return worktree != root
+}
+
+// EffectiveStatus returns the stage status, defaulting to "pending" for zero value.
+func EffectiveStatus(stage *Stage) string {
+	if stage == nil {
+		return StageStatusPending
+	}
+	s := strings.TrimSpace(stage.Status)
+	if s == "" {
+		return StageStatusPending
+	}
+	return s
+}
+
+// validTransitions defines the allowed directed transitions in the stage state machine.
+var validTransitions = map[string]string{
+	StageStatusPending:      StageStatusImplementing,
+	StageStatusImplementing: StageStatusAIReview,
+	StageStatusAIReview:     StageStatusHumanReview,
+	StageStatusHumanReview:  StageStatusDone,
+}
+
+// ValidTransition returns true when transitioning from → to is allowed.
+func ValidTransition(from, to string) bool {
+	allowed, ok := validTransitions[from]
+	return ok && allowed == to
+}
+
+// TransitionStage advances a stage to the given status if the transition is valid,
+// then saves the updated stacks file.
+func TransitionStage(stacks *Stacks, repoRoot, stackName, stageID, toStatus string) error {
+	stack, _ := FindStack(stacks, stackName)
+	if stack == nil {
+		return fmt.Errorf("stack %q not found", stackName)
+	}
+	stage, _ := FindStage(stack, stageID)
+	if stage == nil {
+		return fmt.Errorf("stage %q not found in stack %q", stageID, stackName)
+	}
+
+	from := EffectiveStatus(stage)
+	if !ValidTransition(from, toStatus) {
+		return fmt.Errorf("invalid transition for stage %q: %s → %s", stageID, from, toStatus)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	stage.Status = toStatus
+	if toStatus == StageStatusImplementing {
+		stage.StartedAt = now
+	}
+	if toStatus == StageStatusHumanReview {
+		stage.ReviewedAt = now
+	}
+
+	return SaveStacks(repoRoot, stacks)
 }
 
 func defaultStacks() *Stacks {

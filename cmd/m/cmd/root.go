@@ -24,6 +24,7 @@ func NewRootCmd(version string) *cobra.Command {
 		newPromptRootCmd(),
 		newMCPRootCmd(version),
 		newVersionCmd(version),
+		newConfigRootCmd(),
 	)
 
 	return rootCmd

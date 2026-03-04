@@ -32,3 +32,30 @@ Output style:
 - Start with current m context (stack/stage).
 - Then provide a concrete stage-aligned implementation plan with outcome, implementation steps, validation steps, and risks/mitigations.
 - Then list exact `m` commands needed to confirm or update context.
+
+## Automated pipeline (build/review agents)
+
+When you are running as part of an automated `m stack run` pipeline:
+- You will receive stage context and a phase ("implementing" or "ai_review") in your prompt.
+- Complete your phase work, then call `report_stage_done` to advance the pipeline.
+
+### Stage status lifecycle
+
+```
+pending → implementing → ai-review → human-review → done
+```
+
+### Calling report_stage_done
+
+When your work is complete, call the MCP tool:
+
+```
+tool: report_stage_done
+params:
+  stack_name: <stack>
+  stage_id:   <stage>
+  phase:      "implementing" | "ai_review"
+  summary:    <optional one-line summary of what you did>
+```
+
+Do not call this tool until your work is fully committed. Do not call it if you encountered an error you cannot resolve — leave the stage in its current status and surface the error instead.
