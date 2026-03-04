@@ -25,6 +25,15 @@ type Stack struct {
 	Stages       []Stage `json:"stages"`
 }
 
+// Stage status constants.
+const (
+	StatusPending      = "pending"
+	StatusImplementing = "implementing"
+	StatusAIReview     = "ai-review"
+	StatusHumanReview  = "human-review"
+	StatusDone         = "done"
+)
+
 type Stage struct {
 	ID             string      `json:"id"`
 	Title          string      `json:"title"`
@@ -36,6 +45,9 @@ type Stage struct {
 	Branch         string      `json:"branch,omitempty"`
 	Worktree       string      `json:"worktree,omitempty"`
 	Parent         string      `json:"parent_branch,omitempty"`
+	Status         string      `json:"status,omitempty"`
+	StartedAt      string      `json:"started_at,omitempty"`
+	ReviewedAt     string      `json:"reviewed_at,omitempty"`
 }
 
 type StageRisk struct {
@@ -292,6 +304,81 @@ func normalizePath(path string) string {
 	}
 
 	return filepath.Clean(trimmed)
+}
+
+// EffectiveStatus returns the stage's status, treating zero-value as pending.
+func EffectiveStatus(stage *Stage) string {
+	if stage == nil {
+		return StatusPending
+	}
+	s := strings.TrimSpace(stage.Status)
+	if s == "" {
+		return StatusPending
+	}
+	return s
+}
+
+var allowedTransitions = map[string]string{
+	StatusPending:      StatusImplementing,
+	StatusImplementing: StatusAIReview,
+	StatusAIReview:     StatusHumanReview,
+	StatusHumanReview:  StatusDone,
+}
+
+// ValidTransition returns true if from → to is an allowed status transition.
+func ValidTransition(from, to string) bool {
+	return allowedTransitions[from] == to
+}
+
+// TransitionStage transitions a stage to the given status, enforcing valid transitions.
+func TransitionStage(stacks *Stacks, stackName, stageID, toStatus string) error {
+	stack, _ := FindStack(stacks, stackName)
+	if stack == nil {
+		return fmt.Errorf("stack %q not found", stackName)
+	}
+
+	stage, _ := FindStage(stack, stageID)
+	if stage == nil {
+		return fmt.Errorf("stage %q not found in stack %q", stageID, stackName)
+	}
+
+	from := EffectiveStatus(stage)
+	if !ValidTransition(from, toStatus) {
+		return fmt.Errorf("invalid transition: %s -> %s for stage %q", from, toStatus, stageID)
+	}
+
+	stage.Status = toStatus
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if toStatus == StatusImplementing {
+		stage.StartedAt = now
+	}
+	if toStatus == StatusHumanReview {
+		stage.ReviewedAt = now
+	}
+
+	return nil
+}
+
+// NextPendingStage returns the first stage with pending status, or nil if none.
+func NextPendingStage(stack *Stack) *Stage {
+	for i := range stack.Stages {
+		if EffectiveStatus(&stack.Stages[i]) == StatusPending {
+			return &stack.Stages[i]
+		}
+	}
+	return nil
+}
+
+// AllStagesComplete returns true if all stages are in human-review or done status.
+func AllStagesComplete(stack *Stack) bool {
+	for i := range stack.Stages {
+		s := EffectiveStatus(&stack.Stages[i])
+		if s != StatusHumanReview && s != StatusDone {
+			return false
+		}
+	}
+	return true
 }
 
 func splitPathParts(rel string) []string {

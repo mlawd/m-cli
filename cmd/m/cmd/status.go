@@ -92,6 +92,15 @@ func newStatusCmd() *cobra.Command {
 				outInfo(cmd.OutOrStdout(), "Linked worktree is not mapped to a stack stage")
 			}
 
+			// Stack run summary
+			if currentStack != "" {
+				if stack, _ := state.FindStack(stacksFile, currentStack); stack != nil {
+					if summary := formatStackRunSummary(stack); summary != "" {
+						outInfo(cmd.OutOrStdout(), "%s", summary)
+					}
+				}
+			}
+
 			return nil
 		},
 	}

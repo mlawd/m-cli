@@ -23,6 +23,7 @@ func NewRootCmd(version string) *cobra.Command {
 		newWorktreeRootCmd(),
 		newPromptRootCmd(),
 		newMCPRootCmd(version),
+		newConfigRootCmd(),
 		newVersionCmd(version),
 	)
 
