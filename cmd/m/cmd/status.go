@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -92,9 +93,34 @@ func newStatusCmd() *cobra.Command {
 				outInfo(cmd.OutOrStdout(), "Linked worktree is not mapped to a stack stage")
 			}
 
+			// Stack run summary: show active stage status if a run is in progress.
+			if currentStack != "" {
+				if stack, _ := state.FindStack(stacksFile, currentStack); stack != nil {
+					if summary := buildRunSummary(stack); summary != "" {
+						outInfo(cmd.OutOrStdout(), "Run status: %s", summary)
+					}
+				}
+			}
+
 			return nil
 		},
 	}
+}
+
+// buildRunSummary returns a one-line description of the active stack run, or ""
+// if no stage is currently in an active status.
+func buildRunSummary(stack *state.Stack) string {
+	if stack == nil {
+		return ""
+	}
+	total := len(stack.Stages)
+	for i, stage := range stack.Stages {
+		st := state.EffectiveStatus(&stage)
+		if st == state.StageStatusImplementing || st == state.StageStatusAIReview {
+			return fmt.Sprintf("%s (%s) — stage %d/%d: %s", stack.Name, stack.Type, i+1, total, st)
+		}
+	}
+	return ""
 }
 
 func boolWord(v bool) string {

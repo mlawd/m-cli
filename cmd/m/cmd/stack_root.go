@@ -7,8 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/mlawd/m-cli/internal/agentfiles"
+	"github.com/mlawd/m-cli/internal/config"
 	"github.com/mlawd/m-cli/internal/gitx"
+	"github.com/mlawd/m-cli/internal/harness"
 	"github.com/mlawd/m-cli/internal/paths"
 	"github.com/mlawd/m-cli/internal/plan"
 	"github.com/mlawd/m-cli/internal/state"
@@ -31,6 +35,8 @@ func newStackRootCmd() *cobra.Command {
 		newStackPushCmd(),
 		newStackListCmd(),
 		newStackCurrentCmd(),
+		newStackRunCmd(),
+		newStackWatchCmd(),
 	)
 
 	return cmd
@@ -852,4 +858,208 @@ func formatStackDisplayName(stack state.Stack) string {
 	}
 
 	return fmt.Sprintf("%s (%s)", displayName, stackType)
+}
+
+func newStackRunCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "run",
+		Short: "Start the automated implement → review → human-review pipeline for a stack",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := discoverRepoContext()
+			if err != nil {
+				return err
+			}
+
+			stacksFile, err := loadState(repo)
+			if err != nil {
+				return err
+			}
+
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
+			if err != nil {
+				return err
+			}
+
+			// Validate: at least one pending stage.
+			var firstPending *state.Stage
+			for i := range stack.Stages {
+				if state.EffectiveStatus(&stack.Stages[i]) == state.StageStatusPending {
+					firstPending = &stack.Stages[i]
+					break
+				}
+			}
+			if firstPending == nil {
+				return fmt.Errorf("no pending stages in stack %q; all stages are already in progress or complete", stack.Name)
+			}
+
+			// Validate: global config / agent harness binary.
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			harnessName := strings.TrimSpace(cfg.AgentHarness)
+			binaryName := harnessName
+			if binaryName == "" {
+				binaryName = "opencode"
+			}
+			if _, err := exec.LookPath(binaryName); err != nil {
+				return fmt.Errorf("agent harness binary %q not found in PATH; install it or run: m config set agent_harness <harness>", binaryName)
+			}
+
+			// Write agent definition files if missing.
+			if err := ensureAgentFiles(repo.rootPath, harnessName); err != nil {
+				outWarn(cmd.OutOrStdout(), "Could not write agent definition files: %v", err)
+			}
+
+			// Transition first pending stage → implementing.
+			if err := state.TransitionStage(stacksFile, repo.rootPath, stack.Name, firstPending.ID, state.StageStatusImplementing); err != nil {
+				return err
+			}
+
+			// Reload to get updated state.
+			stacksFile, err = loadState(repo)
+			if err != nil {
+				return err
+			}
+			stack, _ = state.FindStack(stacksFile, stack.Name)
+			stage, _ := state.FindStage(stack, firstPending.ID)
+
+			h, err := harness.New(harnessName)
+			if err != nil {
+				return err
+			}
+
+			worktreePath := strings.TrimSpace(stage.Worktree)
+			if worktreePath == "" {
+				worktreePath = repo.rootPath
+			}
+
+			opts := harness.AgentOpts{
+				WorktreePath: worktreePath,
+				StageContext: stage.Context,
+				StackName:    stack.Name,
+				StageID:      stage.ID,
+				Phase:        "implementing",
+			}
+
+			if err := h.SpawnBuildAgent(cmd.Context(), opts); err != nil {
+				return fmt.Errorf("spawn build agent: %w", err)
+			}
+
+			outSuccess(cmd.OutOrStdout(), "Stack %q started — stage %q is now implementing", stack.Name, stage.ID)
+			outInfo(cmd.OutOrStdout(), "Run `m stack watch` to follow progress")
+			return nil
+		},
+	}
+}
+
+// stageStatusIcon returns a display icon for the given stage status.
+func stageStatusIcon(status string) string {
+	switch status {
+	case state.StageStatusPending:
+		return "·"
+	case state.StageStatusImplementing:
+		return "⠸"
+	case state.StageStatusAIReview:
+		return "⠼"
+	case state.StageStatusHumanReview:
+		return "✓"
+	case state.StageStatusDone:
+		return "✓"
+	default:
+		return "✗"
+	}
+}
+
+func newStackWatchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "watch",
+		Short: "Watch the running stack pipeline (polls every 2s, Ctrl-C detaches)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repo, err := discoverRepoContext()
+			if err != nil {
+				return err
+			}
+
+			stacksFile, err := loadState(repo)
+			if err != nil {
+				return err
+			}
+
+			stack, err := requireCurrentStackWithPlan(stacksFile, repo, stackNameFromFlag(cmd))
+			if err != nil {
+				return err
+			}
+
+			outInfo(cmd.OutOrStdout(), "Watching stack %q — press Ctrl-C to detach", stack.Name)
+			fmt.Fprintln(cmd.OutOrStdout())
+
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+
+			ctx := cmd.Context()
+			for {
+				select {
+				case <-ctx.Done():
+					outInfo(cmd.OutOrStdout(), "Detached (stack continues in background)")
+					return nil
+				case <-ticker.C:
+					// Reload state.
+					freshStacks, err := loadState(repo)
+					if err != nil {
+						outWarn(cmd.OutOrStdout(), "Failed to reload state: %v", err)
+						continue
+					}
+					freshStack, _ := state.FindStack(freshStacks, stack.Name)
+					if freshStack == nil {
+						return fmt.Errorf("stack %q disappeared from state", stack.Name)
+					}
+
+					renderWatchOutput(cmd, freshStack)
+				}
+			}
+		},
+	}
+}
+
+// ensureAgentFiles writes the embedded agent definition files for the
+// configured harness if they don't already exist.
+func ensureAgentFiles(repoRoot, harnessName string) error {
+	switch harnessName {
+	case "claude":
+		return agentfiles.EnsureClaude(repoRoot)
+	default:
+		return agentfiles.EnsureOpenCode(repoRoot)
+	}
+}
+
+func renderWatchOutput(cmd *cobra.Command, stack *state.Stack) {
+	now := time.Now()
+	// Move cursor up to overwrite previous output (simple terminal refresh).
+	// Print header.
+	fmt.Fprintf(cmd.OutOrStdout(), "\r\033[K%s  %s  %d stages\n\n",
+		stack.Name, stack.Type, len(stack.Stages))
+
+	for _, stage := range stack.Stages {
+		st := state.EffectiveStatus(&stage)
+		icon := stageStatusIcon(st)
+
+		elapsed := ""
+		if stage.StartedAt != "" {
+			if t, err := time.Parse(time.RFC3339, stage.StartedAt); err == nil {
+				dur := now.Sub(t).Round(time.Second)
+				m := int(dur.Minutes())
+				s := int(dur.Seconds()) % 60
+				elapsed = fmt.Sprintf(" %dm %02ds", m, s)
+			}
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s  %-20s  %-14s%s\n",
+			icon, stage.ID, st, elapsed)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), "  Press Ctrl-C to detach (stack continues in background)")
 }

@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	mmcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/mlawd/m-cli/internal/config"
+	"github.com/mlawd/m-cli/internal/harness"
+	"github.com/mlawd/m-cli/internal/state"
 )
 
 func ServeStdio(ctx context.Context, in io.Reader, out io.Writer, version string) error {
@@ -29,10 +33,15 @@ func ServeStdio(ctx context.Context, in io.Reader, out io.Writer, version string
 
 	registerResources(srv)
 	registerTools(srv)
+	registerOrchestrationTools(srv)
 	registerPrompts(srv)
 
 	stdio := mcpserver.NewStdioServer(srv)
 	return stdio.Listen(ctx, in, out)
+}
+
+func loadGlobalConfig() (*config.Config, error) {
+	return config.Load()
 }
 
 func registerResources(srv *mcpserver.MCPServer) {
@@ -262,6 +271,239 @@ func registerTools(srv *mcpserver.MCPServer) {
 			}
 
 			return mmcp.NewToolResultStructured(structured, strings.TrimSpace(textBuilder.String())), nil
+		},
+	)
+}
+
+func registerOrchestrationTools(srv *mcpserver.MCPServer) {
+	srv.AddTool(
+		mmcp.NewTool(
+			"report_stage_done",
+			mmcp.WithDescription("Called by agents when their phase is complete. Transitions the stage status and triggers the next pipeline step."),
+			mmcp.WithString("stack_name", mmcp.Description("Name of the stack"), mmcp.Required()),
+			mmcp.WithString("stage_id", mmcp.Description("ID of the stage"), mmcp.Required()),
+			mmcp.WithString("phase", mmcp.Description("Phase that just completed: implementing or ai_review"), mmcp.Required()),
+			mmcp.WithString("summary", mmcp.Description("Optional summary of what was done, stored for watch display")),
+		),
+		func(ctx context.Context, request mmcp.CallToolRequest) (*mmcp.CallToolResult, error) {
+			stackName, err := request.RequireString("stack_name")
+			if err != nil {
+				return nil, err
+			}
+			stageID, err := request.RequireString("stage_id")
+			if err != nil {
+				return nil, err
+			}
+			phase, err := request.RequireString("phase")
+			if err != nil {
+				return nil, err
+			}
+			phase = strings.TrimSpace(phase)
+			stackName = strings.TrimSpace(stackName)
+			stageID = strings.TrimSpace(stageID)
+
+			snapshot, err := BuildContextSnapshot(".", false)
+			if err != nil {
+				return nil, fmt.Errorf("build context: %w", err)
+			}
+			repoRoot := snapshot.RepoRoot
+			if repoRoot == "" {
+				return nil, fmt.Errorf("could not determine repo root")
+			}
+
+			stacks, err := state.LoadStacks(repoRoot)
+			if err != nil {
+				return nil, fmt.Errorf("load stacks: %w", err)
+			}
+
+			switch phase {
+			case "implementing":
+				// Transition: implementing → ai-review
+				if err := state.TransitionStage(stacks, repoRoot, stackName, stageID, state.StageStatusAIReview); err != nil {
+					return nil, err
+				}
+
+				// Reload stacks after save and spawn review agent.
+				stacks, err = state.LoadStacks(repoRoot)
+				if err != nil {
+					return nil, fmt.Errorf("reload stacks: %w", err)
+				}
+				stack, _ := state.FindStack(stacks, stackName)
+				stage, _ := state.FindStage(stack, stageID)
+
+				cfg, err := loadGlobalConfig()
+				if err != nil {
+					return nil, err
+				}
+				h, err := harness.New(cfg.AgentHarness)
+				if err != nil {
+					return nil, err
+				}
+				opts := harness.AgentOpts{
+					WorktreePath: strings.TrimSpace(stage.Worktree),
+					StageContext: stage.Context,
+					StackName:    stackName,
+					StageID:      stageID,
+					Phase:        "ai_review",
+					DiffBase:     strings.TrimSpace(stage.Branch),
+				}
+				if opts.WorktreePath == "" {
+					opts.WorktreePath = repoRoot
+				}
+				if err := h.SpawnReviewAgent(ctx, opts); err != nil {
+					return nil, fmt.Errorf("spawn review agent: %w", err)
+				}
+
+				return mmcp.NewToolResultText(fmt.Sprintf("Stage %q transitioned to ai-review; review agent spawned.", stageID)), nil
+
+			case "ai_review":
+				// Transition: ai-review → human-review
+				if err := state.TransitionStage(stacks, repoRoot, stackName, stageID, state.StageStatusHumanReview); err != nil {
+					return nil, err
+				}
+
+				// Find the next pending stage in this stack and start it.
+				stacks, err = state.LoadStacks(repoRoot)
+				if err != nil {
+					return nil, fmt.Errorf("reload stacks: %w", err)
+				}
+				stack, _ := state.FindStack(stacks, stackName)
+
+				var nextStage *state.Stage
+				for i := range stack.Stages {
+					s := &stack.Stages[i]
+					if state.EffectiveStatus(s) == state.StageStatusPending {
+						nextStage = s
+						break
+					}
+				}
+
+				if nextStage == nil {
+					// All stages done — mark stack complete via a summary note.
+					return mmcp.NewToolResultText(fmt.Sprintf("Stage %q moved to human-review. All stages complete — stack %q is ready for final review.", stageID, stackName)), nil
+				}
+
+				// Transition next stage: pending → implementing
+				if err := state.TransitionStage(stacks, repoRoot, stackName, nextStage.ID, state.StageStatusImplementing); err != nil {
+					return nil, err
+				}
+				stacks, err = state.LoadStacks(repoRoot)
+				if err != nil {
+					return nil, fmt.Errorf("reload stacks: %w", err)
+				}
+				stack, _ = state.FindStack(stacks, stackName)
+				nextStagePtr, _ := state.FindStage(stack, nextStage.ID)
+
+				cfg, err := loadGlobalConfig()
+				if err != nil {
+					return nil, err
+				}
+				h, err := harness.New(cfg.AgentHarness)
+				if err != nil {
+					return nil, err
+				}
+				opts := harness.AgentOpts{
+					WorktreePath: strings.TrimSpace(nextStagePtr.Worktree),
+					StageContext: nextStagePtr.Context,
+					StackName:    stackName,
+					StageID:      nextStagePtr.ID,
+					Phase:        "implementing",
+				}
+				if opts.WorktreePath == "" {
+					opts.WorktreePath = repoRoot
+				}
+				if err := h.SpawnBuildAgent(ctx, opts); err != nil {
+					return nil, fmt.Errorf("spawn build agent for stage %q: %w", nextStagePtr.ID, err)
+				}
+
+				return mmcp.NewToolResultText(fmt.Sprintf(
+					"Stage %q moved to human-review. Next stage %q started (implementing).",
+					stageID, nextStagePtr.ID,
+				)), nil
+
+			default:
+				return nil, fmt.Errorf("unknown phase %q; must be implementing or ai_review", phase)
+			}
+		},
+	)
+
+	srv.AddTool(
+		mmcp.NewTool(
+			"get_stack_run_status",
+			mmcp.WithDescription("Returns the current run status for a stack: per-stage status, active stage, and elapsed times."),
+			mmcp.WithString("stack_name", mmcp.Description("Name of the stack"), mmcp.Required()),
+		),
+		func(ctx context.Context, request mmcp.CallToolRequest) (*mmcp.CallToolResult, error) {
+			stackName, err := request.RequireString("stack_name")
+			if err != nil {
+				return nil, err
+			}
+			stackName = strings.TrimSpace(stackName)
+
+			snapshot, err := BuildContextSnapshot(".", false)
+			if err != nil {
+				return nil, fmt.Errorf("build context: %w", err)
+			}
+			repoRoot := snapshot.RepoRoot
+			if repoRoot == "" {
+				return nil, fmt.Errorf("could not determine repo root")
+			}
+
+			stacks, err := state.LoadStacks(repoRoot)
+			if err != nil {
+				return nil, fmt.Errorf("load stacks: %w", err)
+			}
+
+			stack, _ := state.FindStack(stacks, stackName)
+			if stack == nil {
+				return nil, fmt.Errorf("stack %q not found", stackName)
+			}
+
+			now := time.Now().UTC()
+			type stageStatus struct {
+				ID          string `json:"id"`
+				Title       string `json:"title"`
+				Status      string `json:"status"`
+				StartedAt   string `json:"started_at,omitempty"`
+				ReviewedAt  string `json:"reviewed_at,omitempty"`
+				ElapsedSecs int64  `json:"elapsed_secs,omitempty"`
+			}
+
+			activeStageID := ""
+			stages := make([]stageStatus, 0, len(stack.Stages))
+			for _, s := range stack.Stages {
+				st := state.EffectiveStatus(&s)
+				ss := stageStatus{
+					ID:         s.ID,
+					Title:      s.Title,
+					Status:     st,
+					StartedAt:  s.StartedAt,
+					ReviewedAt: s.ReviewedAt,
+				}
+				if s.StartedAt != "" {
+					if t, err := time.Parse(time.RFC3339, s.StartedAt); err == nil {
+						ss.ElapsedSecs = int64(now.Sub(t).Seconds())
+					}
+				}
+				if st == state.StageStatusImplementing || st == state.StageStatusAIReview {
+					activeStageID = s.ID
+				}
+				stages = append(stages, ss)
+			}
+
+			result := map[string]interface{}{
+				"stack_name":      stack.Name,
+				"stack_type":      stack.Type,
+				"active_stage_id": activeStageID,
+				"stages":          stages,
+				"total_stages":    len(stages),
+			}
+
+			data, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				return nil, fmt.Errorf("encode result: %w", err)
+			}
+			return mmcp.NewToolResultStructured(result, string(data)), nil
 		},
 	)
 }
