@@ -31,6 +31,10 @@ go run ./cmd/m stage push
 go run ./cmd/m stage current
 go run ./cmd/m worktree list
 go run ./cmd/m worktree prune
+go run ./cmd/m config show
+go run ./cmd/m config set agent_harness opencode
+go run ./cmd/m stack run
+go run ./cmd/m stack watch
 ```
 
 With Makefile args forwarding:
@@ -72,6 +76,14 @@ make run ARGS="stage list"
 - `m stack push` pushes started stage branches in order with `--force-with-lease` and creates missing PRs
 - `m stage push` pushes the current stage branch and creates a PR if one does not already exist
 - `m prompt default` prints the default MCP prompt (`MCP_PROMPT.md`)
+
+### Automated pipeline
+
+- `m stack run` starts the implement -> review pipeline for the current stack: transitions the first pending stage to `implementing`, spawns a build agent, and triggers the review -> next-stage cascade via `report_stage_done`
+- `m stack watch` shows a live dashboard of pipeline progress (refreshes every 2s; detach with ctrl-c)
+- `m config show` prints resolved global config as JSON (`~/.config/m/config.json`)
+- `m config set <key> <value>` sets a config value; supported keys: `agent_harness` (opencode, claude), `agents.<name>` (agent name)
+- stage status lifecycle: `pending` -> `implementing` -> `ai-review` -> `human-review` -> `done`
 
 ### Ad-hoc worktree flow (no plan required)
 
@@ -139,6 +151,8 @@ The server exposes:
 - tools:
   - `get_m_context`
   - `suggest_m_plan`
+  - `report_stage_done`
+  - `get_stack_run_status`
 - prompt:
   - `plan_with_m`
 
@@ -190,9 +204,15 @@ m help
 ## Project layout
 
 - `cmd/m/main.go` - CLI bootstrap/entrypoint
-- `cmd/m/cmd/` - Cobra commands (`root`, `init`, `stack`, `stage`, `version`)
+- `cmd/m/cmd/` - Cobra commands (`root`, `init`, `status`, `stack`, `stage`, `worktree`, `prompt`, `config`, `mcp`, `version`)
+- `internal/agent/` - agent definition file management
+- `internal/config/` - global config model + persistence (`~/.config/m/config.json`)
 - `internal/gitx/` - git command helpers
+- `internal/harness/` - agent harness abstraction (opencode, claude)
 - `internal/localignore/` - repo-local ignore helpers (`.git/info/exclude`)
+- `internal/mcp/` - MCP server, resources, tools, and orchestration
+- `internal/paths/` - path validation and naming
 - `internal/plan/` - plan parser/validator (markdown + YAML frontmatter)
+- `internal/stacks/` - stack file helpers
 - `internal/state/` - repo-local state model + persistence
 - `go.mod` - Go module metadata

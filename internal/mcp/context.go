@@ -114,13 +114,22 @@ func planningGuide() string {
 8) Publish the active stage branch and open/update review:
    - m stage push
 
-9) While planning agent work:
+9) Run the automated implement -> review pipeline:
+   - Configure the agent harness: m config set agent_harness opencode (or claude)
+   - Optionally set agent names: m config set agents.build build, m config set agents.review review
+   - Verify config: m config show
+   - Start the pipeline: m stack run
+   - Watch progress: m stack watch
+   - Stages transition through: pending -> implementing -> ai-review -> human-review
+   - Build and review agents are spawned automatically via report_stage_done.
+
+10) While planning agent work:
     - Prefer one stage-focused goal at a time.
     - Keep changes scoped to the selected stage.
     - For new plans, prefer version 3 and capture prompt-like stage context under "## Stage: <id>".
     - If no stage is selected, pick the earliest incomplete stage.
 
-10) Useful guardrails for agents:
+11) Useful guardrails for agents:
    - Read inferred stack/stage before proposing edits.
    - Mention which stage a change belongs to.
    - If changing stage scope, update selection first.
@@ -161,6 +170,15 @@ Global stack override:
 - m stack push
   Push started stage branches in order with --force-with-lease and create PRs when missing.
 
+- m stack run
+  Start the automated implement -> review pipeline for the current stack.
+  Transitions the first pending stage to implementing and spawns a build agent.
+  Requires configured agent harness (m config show). Run m stack watch to follow progress.
+
+- m stack watch
+  Watch the progress of a running stack pipeline.
+  Refreshes every 2 seconds showing per-stage status and elapsed time. Detach with ctrl-c; the pipeline continues in the background.
+
 - m stage list
   List stages for the current stack (requires an attached plan).
 
@@ -188,6 +206,12 @@ Global stack override:
 
 - m prompt default
   Print the default MCP prompt from MCP_PROMPT.md.
+
+- m config show
+  Print resolved global config as JSON (~/.config/m/config.json).
+
+- m config set <key> <value>
+  Set a config value. Supported keys: agent_harness (opencode|claude), agents.<name> (agent name).
 `)
 }
 
