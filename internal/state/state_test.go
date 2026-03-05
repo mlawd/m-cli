@@ -70,3 +70,130 @@ func TestIsValidStackType(t *testing.T) {
 		t.Fatal("IsValidStackType() = true, want false for feature")
 	}
 }
+
+func TestEffectiveStatus(t *testing.T) {
+	if got := EffectiveStatus(nil); got != StatusPending {
+		t.Fatalf("EffectiveStatus(nil) = %q, want %q", got, StatusPending)
+	}
+	if got := EffectiveStatus(&Stage{}); got != StatusPending {
+		t.Fatalf("EffectiveStatus(empty) = %q, want %q", got, StatusPending)
+	}
+	if got := EffectiveStatus(&Stage{Status: StatusImplementing}); got != StatusImplementing {
+		t.Fatalf("EffectiveStatus(implementing) = %q, want %q", got, StatusImplementing)
+	}
+}
+
+func TestValidTransition(t *testing.T) {
+	valid := []struct{ from, to string }{
+		{StatusPending, StatusImplementing},
+		{StatusImplementing, StatusAIReview},
+		{StatusAIReview, StatusHumanReview},
+		{StatusHumanReview, StatusDone},
+	}
+	for _, tc := range valid {
+		if !ValidTransition(tc.from, tc.to) {
+			t.Errorf("ValidTransition(%q, %q) = false, want true", tc.from, tc.to)
+		}
+	}
+
+	invalid := []struct{ from, to string }{
+		{StatusPending, StatusAIReview},
+		{StatusPending, StatusDone},
+		{StatusImplementing, StatusDone},
+		{StatusDone, StatusPending},
+	}
+	for _, tc := range invalid {
+		if ValidTransition(tc.from, tc.to) {
+			t.Errorf("ValidTransition(%q, %q) = true, want false", tc.from, tc.to)
+		}
+	}
+}
+
+func TestTransitionStage(t *testing.T) {
+	stacks := &Stacks{
+		Stacks: []Stack{
+			{
+				Name: "test-stack",
+				Stages: []Stage{
+					{ID: "stage-1"},
+					{ID: "stage-2"},
+				},
+			},
+		},
+	}
+
+	// pending → implementing
+	if err := TransitionStage(stacks, "test-stack", "stage-1", StatusImplementing); err != nil {
+		t.Fatal(err)
+	}
+	stage, _ := FindStage(&stacks.Stacks[0], "stage-1")
+	if stage.Status != StatusImplementing {
+		t.Fatalf("got %q, want %q", stage.Status, StatusImplementing)
+	}
+	if stage.StartedAt == "" {
+		t.Fatal("StartedAt should be set")
+	}
+
+	// implementing → ai-review
+	if err := TransitionStage(stacks, "test-stack", "stage-1", StatusAIReview); err != nil {
+		t.Fatal(err)
+	}
+
+	// ai-review → human-review
+	if err := TransitionStage(stacks, "test-stack", "stage-1", StatusHumanReview); err != nil {
+		t.Fatal(err)
+	}
+	if stage.ReviewedAt == "" {
+		t.Fatal("ReviewedAt should be set")
+	}
+
+	// Invalid: pending → done
+	if err := TransitionStage(stacks, "test-stack", "stage-2", StatusDone); err == nil {
+		t.Fatal("expected error for invalid transition")
+	}
+
+	// Not found
+	if err := TransitionStage(stacks, "test-stack", "nope", StatusImplementing); err == nil {
+		t.Fatal("expected error for missing stage")
+	}
+	if err := TransitionStage(stacks, "nope", "stage-1", StatusImplementing); err == nil {
+		t.Fatal("expected error for missing stack")
+	}
+}
+
+func TestNextPendingStage(t *testing.T) {
+	stack := &Stack{
+		Stages: []Stage{
+			{ID: "s1", Status: StatusHumanReview},
+			{ID: "s2", Status: ""},
+			{ID: "s3", Status: StatusPending},
+		},
+	}
+
+	next := NextPendingStage(stack)
+	if next == nil || next.ID != "s2" {
+		t.Fatalf("NextPendingStage() = %v, want s2", next)
+	}
+}
+
+func TestAllStagesComplete(t *testing.T) {
+	complete := &Stack{
+		Stages: []Stage{
+			{ID: "s1", Status: StatusHumanReview},
+			{ID: "s2", Status: StatusDone},
+		},
+	}
+	if !AllStagesComplete(complete) {
+		t.Fatal("expected all complete")
+	}
+
+	incomplete := &Stack{
+		Stages: []Stage{
+			{ID: "s1", Status: StatusHumanReview},
+			{ID: "s2", Status: StatusImplementing},
+		},
+	}
+	if AllStagesComplete(incomplete) {
+		t.Fatal("expected not all complete")
+	}
+}

@@ -29,6 +29,7 @@ func ServeStdio(ctx context.Context, in io.Reader, out io.Writer, version string
 
 	registerResources(srv)
 	registerTools(srv)
+	registerOrchestrationTools(srv)
 	registerPrompts(srv)
 
 	stdio := mcpserver.NewStdioServer(srv)

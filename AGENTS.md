@@ -20,6 +20,50 @@ The default prompt is maintained in `MCP_PROMPT.md`.
 - Do not create manual branch/worktree structures when equivalent `m` commands exist.
 - Use raw git only when the action is outside `m` capabilities.
 
+## Orchestration Pipeline
+
+m supports an automated implement -> review -> human-review pipeline:
+
+### Stage Status Lifecycle
+
+```
+pending → implementing → ai-review → human-review → done
+```
+
+- **pending**: default for all stages on plan attach
+- **implementing**: build agent is running
+- **ai-review**: review agent is running
+- **human-review**: both agents finished; humans can inspect
+- **done**: human explicitly marked complete
+
+### MCP Orchestration Tools
+
+- **`report_stage_done`**: Called by agents when their phase is complete.
+  - Parameters: `stack_name`, `stage_id`, `phase` ("implementing" or "ai_review"), `summary` (optional)
+  - When `phase == "implementing"`: transitions stage to ai-review and spawns review agent
+  - When `phase == "ai_review"`: transitions stage to human-review, finds next pending stage, and spawns build agent for it
+
+- **`get_stack_run_status`**: Returns current run status of a stack including per-stage status, active stage, and elapsed time.
+
+### Agent Harness Configuration
+
+Global config at `~/.config/m/config.json`:
+```json
+{
+  "agent_harness": "opencode",
+  "agents": {
+    "build": "build",
+    "review": "review"
+  }
+}
+```
+
+Manage with `m config show` and `m config set`.
+
+### Agent Definitions
+
+Review agent definitions are shipped in `.opencode/agents/review.md` (or `.claude/agents/review.md`) and are written automatically on `m stack run` if missing.
+
 ## Maintenance Instructions
 
 - Keep `internal/mcp/server.go` resources/tools/prompts in sync with `MCP_PROMPT.md`.
@@ -27,4 +71,5 @@ The default prompt is maintained in `MCP_PROMPT.md`.
   - MCP resources, tools, or prompt names change.
   - `m` command behavior changes for init/stack/stage workflows.
   - Plan format validation rules change.
+  - Stage status lifecycle or orchestration tools change.
 - Ensure examples and command names remain accurate and runnable.

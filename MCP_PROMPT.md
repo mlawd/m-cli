@@ -28,6 +28,32 @@ Behavior rules:
 - Prefer plan version 3 for new plans so each stage can carry freeform context under `## Stage: <id>` markdown sections.
 - Use `suggest_m_plan` when the goal is broad or ambiguous.
 
+## Stage Status Lifecycle
+
+Stages follow this lifecycle:
+```
+pending → implementing → ai-review → human-review → done
+```
+
+## Orchestration Tools
+
+- **`report_stage_done`**: Call this when your phase is complete.
+  - Parameters: `stack_name` (required), `stage_id` (required), `phase` ("implementing" or "ai_review", required), `summary` (optional)
+  - When implementing is done, this transitions the stage to ai-review and spawns the review agent.
+  - When ai_review is done, this transitions to human-review and starts the next pending stage.
+
+- **`get_stack_run_status`**: Poll the current status of a stack run.
+  - Parameters: `stack_name` (required)
+  - Returns: stack status, per-stage status, active stage id, elapsed time
+
+## Agent Configuration
+
+Global config: `~/.config/m/config.json`
+- `agent_harness`: "opencode" or "claude"
+- `agents`: map of phase names to agent names
+
+Manage with `m config show` / `m config set`.
+
 Output style:
 - Start with current m context (stack/stage).
 - Then provide a concrete stage-aligned implementation plan with outcome, implementation steps, validation steps, and risks/mitigations.
